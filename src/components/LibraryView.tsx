@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { writeFile, mkdir, exists } from "@tauri-apps/plugin-fs";
+import { appLocalDataDir, join } from "@tauri-apps/api/path";
 import {
   Plus,
   RefreshCw,
@@ -33,6 +35,43 @@ const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
 function isSafeImagePath(p: string): boolean {
   if (CONTROL_CHAR.test(p)) return false;
   return true;
+}
+
+function mimeToExt(mime: string): string {
+  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/gif") return "gif";
+  if (mime === "image/bmp") return "bmp";
+  return "png";
+}
+
+/**
+ * Save a clipboard image blob to the app's local data dir and return the
+ * absolute path. Used by the paste-to-library handler so users can Cmd+V
+ * directly from Midjourney/browser without saving-then-drag.
+ */
+async function saveClipboardImage(blob: File): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  const baseDir = await appLocalDataDir();
+  const pastedDir = await join(baseDir, "pasted");
+  if (!(await exists(pastedDir))) {
+    await mkdir(pastedDir, { recursive: true });
+  }
+
+  const ext = mimeToExt(blob.type);
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .slice(0, 19);
+  const rand = Math.random().toString(36).slice(2, 8);
+  const filename = `pasted-${stamp}-${rand}.${ext}`;
+  const fullPath = await join(pastedDir, filename);
+
+  await writeFile(fullPath, bytes);
+  return fullPath;
 }
 
 type Layout = "grid" | "masonry" | "list";
@@ -135,6 +174,52 @@ export function LibraryView() {
     },
     [project, refresh]
   );
+
+  // Clipboard paste: Cmd+V with an image in clipboard → save to app data dir
+  // and add to library. Works for MJ web copy (browser→clipboard binary).
+  useEffect(() => {
+    async function onPaste(e: ClipboardEvent) {
+      if (!project) return;
+      // Skip if focus is on a textarea/input/contenteditable (user is editing text)
+      const target = e.target as Element | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          (target as HTMLElement).isContentEditable
+        ) {
+          return;
+        }
+      }
+
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItems = items.filter((i) => i.type.startsWith("image/"));
+      if (imageItems.length === 0) return;
+      e.preventDefault();
+
+      setBusy(true);
+      setError(null);
+      const savedPaths: string[] = [];
+      for (const item of imageItems) {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        try {
+          const p = await saveClipboardImage(blob);
+          savedPaths.push(p);
+        } catch (err) {
+          console.error("[paste] save failed:", err);
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      }
+      setBusy(false);
+      if (savedPaths.length > 0) {
+        await addPaths(savedPaths);
+      }
+    }
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [project, addPaths]);
 
   // Native OS drag-drop via Tauri webview events
   useEffect(() => {
