@@ -12,6 +12,7 @@ import {
   optimizeDraftToFirstPass,
   finalizeFirstPassToFinal,
   buildSubmitPayload,
+  stripOrphanImageRefs,
 } from "@/lib/claude";
 import { cn } from "@/lib/utils";
 import { RichTextarea } from "./editor/RichTextarea";
@@ -321,7 +322,6 @@ function FinalStageContent({
 }) {
   const payload = buildSubmitPayload(finalPass, refImages);
   const [copied, setCopied] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
 
   const fullOutput =
@@ -335,16 +335,40 @@ function FinalStageContent({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  async function handleSubmit() {
-    setSubmitting(true);
-    setSubmitMsg("即梦 CLI 接入未完成（等用户给 --help 输出）。当前已生成可粘贴格式 → 你可以 Copy all 后手动用。");
-    setTimeout(() => {
-      setSubmitting(false);
-    }, 800);
+  function handleSubmit() {
+    setSubmitMsg(
+      "即梦 CLI 接入未完成（等用户给 --help 输出）。当前已生成可粘贴格式 → 你可以 Copy all 后手动用。"
+    );
+  }
+
+  function handleStripOrphans() {
+    const cleaned = stripOrphanImageRefs(finalPass, refImages);
+    setFinalPass(cleaned);
   }
 
   return (
     <>
+      {/* C1: orphan (图N) warning — references in final text that no longer
+          have a matching ref image (deleted / renumbered) */}
+      {payload.orphanIndices.length > 0 && (
+        <div className="border border-red-900/60 bg-red-950/20 rounded p-3 text-xs">
+          <div className="text-red-300 font-bold mb-1.5 flex items-center gap-1.5">
+            <AlertCircle size={13} /> 检测到 {payload.orphanIndices.length} 个野引用
+          </div>
+          <div className="text-red-300 mb-2">
+            正文里有{" "}
+            {payload.orphanIndices.map((n) => `(图${n})`).join("、")}{" "}
+            ，但 Library 已经没有对应图。提交即梦时这些 (图N) 没文件附件，AI 会瞎编。
+          </div>
+          <button
+            onClick={handleStripOrphans}
+            className="px-2.5 py-1 rounded text-[11px] bg-red-900/40 hover:bg-red-900/70 text-red-200 font-bold transition"
+          >
+            一键 strip 野引用文本
+          </button>
+        </div>
+      )}
+
       {/* Bindings header preview */}
       {payload.header && (
         <div className="border border-vellum-accent-border bg-vellum-accent-soft/40 rounded p-3 font-mono text-[12px] text-vellum-accent leading-relaxed">
@@ -353,7 +377,7 @@ function FinalStageContent({
           ))}
         </div>
       )}
-      {!payload.header && finalPass.trim() && (
+      {!payload.header && finalPass.trim() && payload.orphanIndices.length === 0 && (
         <div className="text-[11px] text-vellum-faint">
           没有检测到 (图N) 引用 · 回上一阶段加图绑定再 Finalize 一次能拿到完整 header
         </div>
@@ -376,9 +400,10 @@ function FinalStageContent({
           {copied ? "Copied all" : "Copy header + body"}
         </button>
         <button
-          onClick={() => void handleSubmit()}
-          disabled={!finalPass.trim() || submitting}
+          onClick={handleSubmit}
+          disabled={!finalPass.trim()}
           className="px-3 py-1.5 rounded text-[11px] bg-vellum-accent hover:bg-vellum-accent-hover text-black font-bold flex items-center gap-1.5 transition disabled:opacity-40"
+          title="即梦 CLI 接入待实现"
         >
           <ChevronRight size={11} />
           Submit → 即梦 CLI

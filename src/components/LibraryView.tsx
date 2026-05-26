@@ -25,6 +25,16 @@ import { ImageLightbox } from "./ImageLightbox";
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i;
 const ROLES: RefImageRole[] = ["character", "scene", "prop"];
 
+// C3 hardening: reject filenames containing newlines, NUL, or other control
+// chars that could be used to inject system-instruction-shaped text into
+// prompts sent to the CLI providers (claude/codex).
+// Reference: grill C3 finding.
+const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+function isSafeImagePath(p: string): boolean {
+  if (CONTROL_CHAR.test(p)) return false;
+  return true;
+}
+
 type Layout = "grid" | "masonry" | "list";
 const LAYOUT_STORAGE_KEY = "vellum.libraryLayout";
 
@@ -73,19 +83,49 @@ export function LibraryView() {
   const addPaths = useCallback(
     async (paths: string[]) => {
       if (!project || paths.length === 0) return;
+
+      // C3: reject path/filename containing control characters before they
+      // can be embedded into LLM prompts. Drop unsafe paths, surface to user.
+      const safe: string[] = [];
+      const rejected: string[] = [];
+      for (const p of paths) {
+        if (isSafeImagePath(p)) safe.push(p);
+        else rejected.push(p);
+      }
+      if (rejected.length > 0) {
+        setError(
+          `拒绝 ${rejected.length} 个含控制字符的文件名（防 prompt 注入）。重命名后重试。例：${rejected[0].slice(0, 80)}`
+        );
+      }
+      if (safe.length === 0) return;
+
       setBusy(true);
-      setError(null);
+      // accumulate per-file failures instead of aborting the whole batch (H7-ish)
+      const failures: { path: string; err: string }[] = [];
       try {
-        for (const p of paths) {
+        for (const p of safe) {
           const name = p.split("/").pop() || "";
-          await addRefImage({
-            project_id: project.id,
-            role: "character",
-            name,
-            file_path: p,
-          });
+          try {
+            await addRefImage({
+              project_id: project.id,
+              role: "character",
+              name,
+              file_path: p,
+            });
+          } catch (e) {
+            console.error("[LibraryView] addRefImage failed:", p, e);
+            failures.push({
+              path: p,
+              err: e instanceof Error ? e.message : String(e),
+            });
+          }
         }
         await refresh();
+        if (failures.length > 0) {
+          setError(
+            `${failures.length}/${safe.length} 张导入失败。首条：${failures[0].path} — ${failures[0].err}`
+          );
+        }
       } catch (e) {
         console.error("[LibraryView] addPaths failed:", e);
         setError(e instanceof Error ? e.message : String(e));
@@ -155,6 +195,23 @@ export function LibraryView() {
   }
 
   async function handleDelete(id: number) {
+    // C1: before deleting, scan current project's three workflow text fields
+    // for any `(图N)` references to this image. Warn user — those references
+    // will become orphans (the body still says "图3..." but the file is gone).
+    const target = images.find((i) => i.id === id);
+    if (target && project) {
+      const ref = new RegExp(`\\(图\\s*${target.image_index}\\)`);
+      const wheres: string[] = [];
+      if (ref.test(project.draft_text)) wheres.push("Draft");
+      if (ref.test(project.first_pass_text)) wheres.push("First Pass");
+      if (ref.test(project.final_pass_text)) wheres.push("Final");
+      if (wheres.length > 0) {
+        const ok = confirm(
+          `图${target.image_index} 在 ${wheres.join("、")} 里被引用。\n\n删除后这些 (图${target.image_index}) 会变成"野引用"（文字还在但图没了，提交时即梦看不到图会瞎编）。\n\n继续删？`
+        );
+        if (!ok) return;
+      }
+    }
     try {
       await deleteRefImage(id);
       await refresh();

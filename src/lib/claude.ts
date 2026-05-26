@@ -70,7 +70,9 @@ async function callViaCodex(
   // keeping no-approval flow. We only need text generation, no tool calls.
   args.push("--sandbox", "read-only");
   args.push("--ask-for-approval", "never");
-  args.push(fullPrompt);
+  // `--` ensures any user-controlled content in fullPrompt that starts with `-`
+  // is treated as a positional argument, not a flag (C3 hardening).
+  args.push("--", fullPrompt);
 
   const cmd = Command.create("codex", args);
   const result = await cmd.execute();
@@ -122,6 +124,7 @@ async function callViaOpenAI(
   const model = (await getSetting("openai_model")) || DEFAULT_OPENAI_MODEL;
 
   const imageBlocks: OpenAIContentImage[] = [];
+  const failedImagePaths: string[] = [];
   for (const p of imagePaths) {
     try {
       const bytes = await readFile(p);
@@ -133,7 +136,23 @@ async function callViaOpenAI(
       });
     } catch (e) {
       console.warn("[openai] read image failed:", p, e);
+      failedImagePaths.push(p);
     }
+  }
+  // H7: surface image-read failures to the UI instead of silently degrading
+  // the request. If every image failed, hard-fail; if some failed but caller
+  // expected images, fail loudly so user knows visual binding broke.
+  if (failedImagePaths.length > 0 && imagePaths.length > 0) {
+    if (imageBlocks.length === 0) {
+      throw new Error(
+        `Unable to read any of the ${imagePaths.length} reference image(s). Check Library file paths and Tauri fs:scope. First failure: ${failedImagePaths[0]}`
+      );
+    }
+    throw new Error(
+      `${failedImagePaths.length}/${imagePaths.length} reference image(s) failed to read; aborting before sending an incomplete request to OpenAI. Failed: ${failedImagePaths
+        .slice(0, 3)
+        .join(", ")}${failedImagePaths.length > 3 ? ", …" : ""}`
+    );
   }
 
   const userContent: string | OpenAIContent[] =
@@ -242,6 +261,10 @@ ${userText}`;
     "--print",
     "--output-format",
     "text",
+    // `--` separator: any leading `-` in the user-controlled prompt would
+    // otherwise be parsed as a CLI flag (e.g. `--mcp-config /tmp/evil`).
+    // C3 hardening — prevents prompt-injection-to-CLI-flag escalation.
+    "--",
     fullPrompt,
   ]);
 
@@ -380,6 +403,7 @@ ${firstPassText}
   }
 
   const imageBlocks: ImageBlock[] = [];
+  const failedImages: string[] = [];
   for (const img of refImages) {
     try {
       const bytes = await readFile(img.file_path);
@@ -393,7 +417,21 @@ ${firstPassText}
       });
     } catch (e) {
       console.warn("[claude] read image failed:", img.file_path, e);
+      failedImages.push(img.file_path);
     }
+  }
+  // H7: hard-fail when image reads break, instead of silently sending text-only.
+  if (failedImages.length > 0 && refImages.length > 0) {
+    if (imageBlocks.length === 0) {
+      throw new Error(
+        `Unable to read any of the ${refImages.length} reference image(s). Check Library file paths and Tauri fs:scope. First failure: ${failedImages[0]}`
+      );
+    }
+    throw new Error(
+      `${failedImages.length}/${refImages.length} reference image(s) failed to read; aborting to avoid sending an incomplete request. Failed: ${failedImages
+        .slice(0, 3)
+        .join(", ")}${failedImages.length > 3 ? ", …" : ""}`
+    );
   }
 
   return callViaAPI({
@@ -426,6 +464,35 @@ export interface SubmitPayload {
     indices: number[];
     files: string[];
   }[];
+  /** C1: (图N) markers in body that no longer have a matching ref image. */
+  orphanIndices: number[];
+}
+
+/** C1 helper: strip orphan (图N) markers from text. */
+export function stripOrphanImageRefs(
+  text: string,
+  refImages: RefImage[]
+): string {
+  const validIndices = new Set(refImages.map((r) => r.image_index));
+  return text.replace(/\(图\s*(\d+)\)/g, (m, n) =>
+    validIndices.has(Number(n)) ? m : ""
+  );
+}
+
+/** C1 helper: find (图N) markers in a text that don't match any ref image. */
+export function findOrphanImageRefs(
+  text: string,
+  refImages: RefImage[]
+): number[] {
+  const validIndices = new Set(refImages.map((r) => r.image_index));
+  const orphans = new Set<number>();
+  const re = /\(图\s*(\d+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const n = Number(m[1]);
+    if (!validIndices.has(n)) orphans.add(n);
+  }
+  return Array.from(orphans).sort((a, b) => a - b);
 }
 
 export function buildSubmitPayload(
@@ -446,9 +513,13 @@ export function buildSubmitPayload(
     string,
     { label: string; indices: number[]; files: string[] }
   >();
+  const orphanIndices: number[] = [];
   for (const n of usedIndices) {
     const ref = refImages.find((r) => r.image_index === n);
-    if (!ref) continue;
+    if (!ref) {
+      orphanIndices.push(n);
+      continue;
+    }
     const label = ROLE_LABEL_ZH[ref.role] || ref.role;
     if (!byRole.has(ref.role)) {
       byRole.set(ref.role, { label, indices: [], files: [] });
@@ -481,6 +552,7 @@ export function buildSubmitPayload(
       indices: g.indices,
       files: g.files,
     })),
+    orphanIndices,
   };
 }
 
