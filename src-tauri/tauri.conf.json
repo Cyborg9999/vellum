@@ -30,7 +30,8 @@
           "$DOWNLOAD/**",
           "$DESKTOP/**",
           "$DOCUMENT/**",
-          "$HOME/Projects/**"
+          "$HOME/Projects/**",
+          "/Volumes/**"
         ]
       }
     }
