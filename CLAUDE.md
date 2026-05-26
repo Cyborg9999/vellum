@@ -3,6 +3,8 @@
 > 桌面 app · 即梦视频提示词工作流全自动化 · Tauri 2 + React 19 + TipTap
 >
 > **Goal**: 把"Midjourney 出图 → 手写镜头 → GPT 强化 → 即梦 CLI 发起视频"这套流程从 1-2 小时人力 → 5-10 分钟自动。
+>
+> **GitHub**: https://github.com/Cyborg9999/vellum  (private)
 
 ## 当前实现状态（2026-05-26）
 
@@ -184,3 +186,23 @@ DB 位置: `~/Library/Application Support/studio.vellum.app/vellum.db`
 - **测过再交付** — 之前因为没自测推上崩按钮被批评过，凡涉及关键路径必须验证
 - **fluorescent green #39ff14** 是品牌主色，logo 用 **DM Serif Display Italic 纯绿 + glow**（替换了原 Orbitron 渐变）
 - **安全 hardening 倾向** — capabilities 倾向收紧而非放宽（fs:scope 精确路径而非 `**`，shell 命令绝对路径白名单，codex 用 read-only sandbox 而非 --dangerously-bypass）
+- **Claude Code plugin marketplace 偏好**：用户主用 **xiaolai 的第三方 marketplace**（`github.com/xiaolai/claude-plugin-marketplace`）而非 Anthropic 官方 curated。已装 nlpm。需要推荐别的 plugin 时优先建议 xiaolai 源，找不到再 fallback 到 `anthropics/claude-plugins-community`。Anthropic 官方 `claude-plugins-official`（~203 个）无公开申请通道，仅 Anthropic 员工筛选。
+
+## Claude Code plugin marketplace 速查
+
+```bash
+# 注册 marketplace（一次性）
+/plugin marketplace add xiaolai/claude-plugin-marketplace
+/plugin marketplace add anthropics/claude-plugins-community
+
+# 浏览某个 marketplace 的清单
+/plugin marketplace browse xiaolai-claude-plugin-marketplace
+
+# 装
+/plugin install <name>@xiaolai-claude-plugin-marketplace
+
+# 卸
+/plugin uninstall <name>
+```
+
+"Plugin submissions" 页面（claude.ai 内）= 自助提交门户。"Published" 状态 = **进了 community 池**，**不等于**进官方 curated 池。Anthropic 官方原话："submission form does not add plugins to the official marketplace"。
