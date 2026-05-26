@@ -14,6 +14,11 @@ import {
   buildSubmitPayload,
   stripOrphanImageRefs,
 } from "@/lib/claude";
+import {
+  STYLE_PRESETS,
+  matchStylePreset,
+  type StylePreset,
+} from "@/lib/stylePresets";
 import { cn } from "@/lib/utils";
 import { RichTextarea } from "./editor/RichTextarea";
 
@@ -23,6 +28,8 @@ export function ShotsView() {
   const project = useApp((s) => s.currentProject);
   const patchProject = useApp((s) => s.patchCurrentProject);
   const refImages = useApp((s) => s.refImages);
+  const currentStyle = project?.style_prompt ?? "";
+  const activePreset = matchStylePreset(currentStyle);
 
   // Local working state mirrors project fields, persisted on blur
   const [draft, setDraft] = useState("");
@@ -111,7 +118,11 @@ export function ShotsView() {
     setFinalizing(true);
     setError(null);
     try {
-      const result = await finalizeFirstPassToFinal(firstPass.trim(), refImages);
+      const result = await finalizeFirstPassToFinal(
+        firstPass.trim(),
+        refImages,
+        currentStyle
+      );
       setFinalPass(result);
       await persist({ first_pass_text: firstPass, final_pass_text: result });
     } catch (e) {
@@ -119,6 +130,31 @@ export function ShotsView() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setFinalizing(false);
+    }
+  }
+
+  async function applyPreset(preset: StylePreset, alsoFinalize: boolean) {
+    setError(null);
+    try {
+      await patchProject({ style_prompt: preset.prompt });
+      if (alsoFinalize && firstPass.trim()) {
+        // small delay so persist resolves before re-reading style
+        await new Promise((r) => setTimeout(r, 50));
+        await handleFinalize();
+      }
+    } catch (e) {
+      console.error("[ShotsView] applyPreset failed:", e);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function clearPreset() {
+    setError(null);
+    try {
+      await patchProject({ style_prompt: "" });
+    } catch (e) {
+      console.error("[ShotsView] clearPreset failed:", e);
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -204,6 +240,69 @@ export function ShotsView() {
             minRows={10}
             placeholder="点 Optimize 自动生成，或自己粘贴已有第一版分镜"
           />
+
+          {/* Style preset row — clicking a preset writes to project.style_prompt
+              and (optionally) auto-triggers Finalize with the new style */}
+          <div className="border border-vellum-border rounded p-3 bg-vellum-bg/40 space-y-2">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-vellum-faint">
+              <span>Style preset</span>
+              {activePreset ? (
+                <span className="text-vellum-accent normal-case tracking-normal text-[11px] font-bold">
+                  · {activePreset.label} · {activePreset.subtitle}
+                </span>
+              ) : currentStyle.trim() ? (
+                <span className="text-vellum-muted normal-case tracking-normal text-[11px]">
+                  · custom ({currentStyle.length} 字)
+                </span>
+              ) : (
+                <span className="text-vellum-dim normal-case tracking-normal text-[11px]">
+                  · 未设置，将用 Pass 2 默认风格段
+                </span>
+              )}
+              {activePreset || currentStyle.trim() ? (
+                <button
+                  onClick={() => void clearPreset()}
+                  disabled={finalizing}
+                  className="ml-auto text-[10px] text-vellum-faint hover:text-vellum-text transition normal-case tracking-normal disabled:opacity-40"
+                >
+                  clear
+                </button>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {STYLE_PRESETS.map((p) => {
+                const isActive = activePreset?.id === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => void applyPreset(p, !!firstPass.trim())}
+                    disabled={finalizing}
+                    title={`${p.scenarios}\n\n点击：套用并立即 Finalize（如有第一版）`}
+                    className={cn(
+                      "text-left p-2.5 rounded border transition group",
+                      isActive
+                        ? "border-vellum-accent bg-vellum-accent-soft"
+                        : "border-vellum-border bg-vellum-card hover:border-vellum-border-strong",
+                      finalizing && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "text-[12px] font-bold tracking-wider mb-0.5",
+                        isActive ? "text-vellum-accent" : "text-vellum-text"
+                      )}
+                    >
+                      {p.label}
+                    </div>
+                    <div className="text-[10px] text-vellum-faint leading-snug">
+                      {p.subtitle}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={() => void persist({ first_pass_text: firstPass })}
@@ -221,8 +320,10 @@ export function ShotsView() {
               onClick={() => void handleFinalize()}
               hint={
                 finalizing
-                  ? "Claude Opus 视觉理解 + 套你的 1800 字风格指令"
-                  : `读 (图N) 绑定 · 加服化道/动态/3D Blur 胡金铨 / 1800字内`
+                  ? "Claude 视觉理解 + 套当前风格预设 + 1800 字内"
+                  : activePreset
+                  ? `当前 style: ${activePreset.label} · 点击或选预设按钮一键套用`
+                  : `当前 style: 默认（无预设）· 选 A/B 预设可一键套用`
               }
             />
           </div>
