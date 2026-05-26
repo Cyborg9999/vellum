@@ -1,0 +1,169 @@
+@import "tailwindcss";
+/* Orbitron font is loaded via <link> in index.html to avoid @import ordering issues with Tailwind 4 */
+
+@theme {
+  /* Terminal-elegant dark with fluorescent green accent */
+  --color-vellum-bg: #0a0a0a;
+  --color-vellum-panel: #0a0a0a;
+  --color-vellum-elevated: #141414;
+  --color-vellum-card: #0e0e0e;
+  --color-vellum-card-hi: #161616;
+
+  --color-vellum-border: rgba(255, 255, 255, 0.06);
+  --color-vellum-border-strong: rgba(255, 255, 255, 0.14);
+
+  --color-vellum-text: #e8e8e8;
+  --color-vellum-muted: #8a8a8a;
+  --color-vellum-faint: #525252;
+  --color-vellum-dim: #2a2a2a;
+
+  /* Fluorescent green primary */
+  --color-vellum-accent: #39ff14;
+  --color-vellum-accent-hover: #7dff5a;
+  --color-vellum-accent-soft: rgba(57, 255, 20, 0.12);
+  --color-vellum-accent-border: rgba(57, 255, 20, 0.4);
+
+  /* Cover image neon palette companions */
+  --color-vellum-neon-cyan: #00e6e6;
+  --color-vellum-neon-magenta: #ff3df1;
+  --color-vellum-success: #5dc862;
+  --color-vellum-warning: #e0a949;
+
+  --font-display: "DM Serif Display", "Cormorant Garamond", "Didot", "Bodoni 72", Georgia, serif;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+  body {
+    background: var(--color-vellum-bg);
+    color: var(--color-vellum-text);
+    font-family:
+      ui-monospace, "SF Mono", "Menlo", "Monaco", "JetBrains Mono",
+      "Cascadia Mono", "Roboto Mono", "PingFang SC", monospace;
+    font-feature-settings: "ss01", "cv01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  button:focus,
+  input:focus,
+  textarea:focus {
+    outline: none;
+  }
+}
+
+/* Vellum logo — DM Serif Display italic, solid neon green with soft glow */
+.vellum-logo {
+  font-family: var(--font-display);
+  font-weight: 400; /* DM Serif Display only ships regular weight; its serifs are already heavy */
+  font-style: italic;
+  color: var(--color-vellum-accent);
+  letter-spacing: 0.01em;
+  text-shadow:
+    0 0 24px rgba(57, 255, 20, 0.35),
+    0 0 60px rgba(57, 255, 20, 0.18);
+}
+
+/* Rich text inline image chip — "[round-thumb] 图片N" pill */
+.vellum-img-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 2px;
+  padding: 1px 8px 1px 2px;
+  border-radius: 999px;
+  background: rgba(57, 255, 20, 0.08);
+  border: 1px solid var(--color-vellum-accent-border);
+  vertical-align: -4px;
+  user-select: none;
+  cursor: default;
+  line-height: 1;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.vellum-img-badge:hover {
+  background: rgba(57, 255, 20, 0.16);
+  border-color: var(--color-vellum-accent);
+}
+.vellum-img-badge-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  pointer-events: none;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+.vellum-img-badge-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-vellum-accent);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.ProseMirror-selectednode .vellum-img-badge {
+  outline: 2px solid var(--color-vellum-accent);
+  outline-offset: 1px;
+}
+
+/* TipTap content area defaults */
+.vellum-richtext {
+  min-height: 12em;
+}
+.vellum-richtext p {
+  margin: 0 0 0.6em 0;
+}
+.vellum-richtext p:last-child {
+  margin-bottom: 0;
+}
+
+/* Tippy theme to match Vellum */
+.tippy-box[data-theme~="vellum"] {
+  background: transparent;
+  color: var(--color-vellum-text);
+}
+.tippy-box[data-theme~="vellum"] > .tippy-content {
+  padding: 0;
+}
+
+/* Cover image placeholder (red/magenta neon) until file drops in */
+.workspace-bg-placeholder {
+  background:
+    radial-gradient(
+      ellipse at 50% 30%,
+      rgba(255, 61, 100, 0.4),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at 50% 70%,
+      rgba(255, 61, 241, 0.32),
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse at 30% 90%,
+      rgba(255, 200, 50, 0.12),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #1a0a0a 0%, #050505 100%);
+}
