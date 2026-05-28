@@ -66,6 +66,11 @@ export function ShotsView() {
   const [optimizeElapsed, setOptimizeElapsed] = useState(0);
   const [finalizeElapsed, setFinalizeElapsed] = useState(0);
 
+  // Bumped when ref_images are renumbered (grill H1). Forces the hydrate
+  // useEffect below to refetch prompt entries so the editor doesn't write
+  // stale pre-compaction text back on the next blur-persist.
+  const [compactRevision, setCompactRevision] = useState(0);
+
   useEffect(() => {
     if (!optimizing) {
       setOptimizeElapsed(0);
@@ -152,6 +157,23 @@ export function ShotsView() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, compactRevision]);
+
+  // H1: listen for ref_images_compacted dispatched by db.compactImageIndices.
+  // Bumping compactRevision retriggers the hydrate effect above, which reads
+  // fresh (图N) text from DB instead of letting the editors persist stale
+  // pre-compaction prose on next blur.
+  useEffect(() => {
+    if (!project) return;
+    const projectId = project.id;
+    function onCompacted(e: Event) {
+      const ce = e as CustomEvent<{ projectId?: number }>;
+      if (ce.detail?.projectId !== projectId) return;
+      setCompactRevision((r) => r + 1);
+    }
+    window.addEventListener("vellum:ref_images_compacted", onCompacted);
+    return () =>
+      window.removeEventListener("vellum:ref_images_compacted", onCompacted);
   }, [project?.id]);
 
   // Persist helpers

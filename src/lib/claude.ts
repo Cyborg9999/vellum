@@ -1932,11 +1932,22 @@ export function buildSubmitPayload(
 // ─── helpers ────────────────────────────────────────────────────────
 
 function bytesToBase64(bytes: Uint8Array): string {
+  // Prefer the modern native API where available — it's ~10× faster and
+  // doesn't risk RangeError from String.fromCharCode arg-cap (grill M7).
+  const proto = Uint8Array.prototype as unknown as {
+    toBase64?: () => string;
+  };
+  if (typeof proto.toBase64 === "function") {
+    return (bytes as unknown as { toBase64: () => string }).toBase64();
+  }
+  // Fallback: chunked apply() — safer than spread because apply takes an
+  // array argument rather than spreading into discrete function args.
   let binary = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(
-      ...(bytes.subarray(i, i + chunk) as unknown as number[])
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk))
     );
   }
   return btoa(binary);

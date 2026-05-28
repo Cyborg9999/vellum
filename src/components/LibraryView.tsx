@@ -72,11 +72,17 @@ async function readImageAsClipboardPng(filePath: string): Promise<Blob> {
   return blobToPng(source);
 }
 
-// C3 hardening: reject filenames containing newlines, NUL, or other control
-// chars that could be used to inject system-instruction-shaped text into
-// prompts sent to the CLI providers (claude/codex).
-// Reference: grill C3 finding.
-const CONTROL_CHAR = /[\x00-\x1f\x7f]/;
+// C3 + M4 hardening: reject filenames containing newlines, NUL, other
+// ASCII control chars, AND Unicode bidi / format controls (RTL override,
+// zero-width joiner, isolates). Embedding bidi chars directly would
+// confuse the TS parser inside a regex literal — encode as \u escapes:
+//   \u0000-\u001f, \u007f      ASCII C0 + DEL
+//   \u200b-\u200f              zero-width chars + LRM/RLM
+//   \u2028-\u202e              line/para sep + bidi format/override
+//   \u2060-\u2069              invisible ops + bidi isolates
+//   \ufeff                     BOM / zero-width no-break space
+const CONTROL_CHAR =
+  /[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/;
 function isSafeImagePath(p: string): boolean {
   if (CONTROL_CHAR.test(p)) return false;
   return true;

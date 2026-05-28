@@ -333,6 +333,19 @@ async function compactImageIndicesInner(projectId: number): Promise<void> {
     }
 
     await db.execute("COMMIT");
+
+    // H1: notify views that image indices were renumbered so any in-memory
+    // copy of shot / project / prompt-entry text can re-hydrate from DB
+    // before the next blur-persist overwrites the renumbering with stale
+    // (pre-compact) prose. Skipped when remap.size === 0 (only trashed
+    // rows were parked) since visible text didn't change.
+    if (remap.size > 0 && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("vellum:ref_images_compacted", {
+          detail: { projectId },
+        })
+      );
+    }
   } catch (e) {
     try {
       await db.execute("ROLLBACK");
@@ -348,17 +361,21 @@ async function compactImageIndicesInner(projectId: number): Promise<void> {
  * Rewrite (图OLD) → (图NEW) in a text buffer using a two-pass placeholder
  * strategy so swaps and chained mappings can't collide. Only touches digits
  * matching the captured numbers — orphan refs (no entry in remap) are left
- * unchanged.
+ * unchanged. Placeholders use Unicode Private-Use-Area code points so a
+ * pasted ASCII control char (e.g. SOH \x01 in a binary diff) can't be
+ * mistaken for a placeholder mid-pass (grill M3).
  */
 function applyImageRemap(text: string, remap: Map<number, number>): string {
   if (!text || remap.size === 0) return text;
+  const OPEN = "\u{E000}";
+  const CLOSE = "\u{E001}";
   let out = text;
   for (const oldN of remap.keys()) {
     const re = new RegExp(`\\(图\\s*${oldN}\\)`, "g");
-    out = out.replace(re, `\x01${oldN}\x02`);
+    out = out.replace(re, `${OPEN}${oldN}${CLOSE}`);
   }
   for (const [oldN, newN] of remap) {
-    const re = new RegExp(`\x01${oldN}\x02`, "g");
+    const re = new RegExp(`${OPEN}${oldN}${CLOSE}`, "g");
     out = out.replace(re, `(图${newN})`);
   }
   return out;
