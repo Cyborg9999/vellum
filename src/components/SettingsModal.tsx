@@ -9,9 +9,19 @@ import {
   KeyRound,
   Bot,
   Cpu,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { getSetting, setSetting } from "@/lib/db";
 import { resetClaudeClient, type AuthMode } from "@/lib/claude";
+import {
+  getResolvedTheme,
+  getThemeMode,
+  setThemeMode,
+  subscribeTheme,
+  type ThemeMode,
+} from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 export function SettingsButton() {
@@ -31,11 +41,13 @@ export function SettingsButton() {
 }
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<AuthMode>("api");
+  const [mode, setMode] = useState<AuthMode>("codex");
   const [apiKey, setApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-5");
   const [codexModel, setCodexModel] = useState("gpt-5.5");
+  const [theme, setTheme] = useState<ThemeMode>(getThemeMode);
+  const [resolvedTheme, setResolvedTheme] = useState(getResolvedTheme);
   const [revealClaude, setRevealClaude] = useState(false);
   const [revealOpenai, setRevealOpenai] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -43,10 +55,19 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    return subscribeTheme(({ mode, resolved }) => {
+      setTheme(mode);
+      setResolvedTheme(resolved);
+    });
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       try {
         const m = (await getSetting("claude_auth_mode")) as AuthMode | null;
-        if (m === "cli" || m === "openai" || m === "codex") setMode(m);
+        if (m === "api" || m === "cli" || m === "openai" || m === "codex") {
+          setMode(m);
+        }
         const k = await getSetting("claude_api_key");
         if (k) setApiKey(k);
         const ok = await getSetting("openai_api_key");
@@ -92,6 +113,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     (mode === "api" && !apiKey.trim()) ||
     (mode === "openai" && !openaiKey.trim());
 
+  const resolvedThemeLabel =
+    resolvedTheme === "dark"
+      ? "\u6df1\u8272"
+      : resolvedTheme === "gray"
+      ? "\u62a4\u773c\u7070"
+      : "\u6d45\u8272";
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"
@@ -104,7 +132,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-vellum-border">
           <div className="flex items-center gap-2">
             <SettingsIcon size={14} className="text-vellum-accent" />
-            <div className="text-vellum-text text-sm font-bold tracking-wider uppercase">
+            <div className="text-vellum-text text-sm font-bold uppercase">
               Settings
             </div>
           </div>
@@ -118,7 +146,50 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-5 space-y-5">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-[10px] uppercase text-vellum-faint">
+                Appearance
+              </div>
+              <div className="text-[10px] uppercase text-vellum-faint">
+                {"\u5f53\u524d\uff1a"}{resolvedThemeLabel}
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              <ModeOption
+                active={theme === "dark"}
+                onClick={() => setThemeMode("dark")}
+                icon={<Moon size={13} />}
+                label="深色"
+                hint="固定深色界面"
+              />
+              <ModeOption
+                active={theme === "light"}
+                onClick={() => setThemeMode("light")}
+                icon={<Sun size={13} />}
+                label="浅色"
+                hint="固定浅色界面"
+              />
+              <ModeOption
+                active={theme === "gray"}
+                onClick={() => setThemeMode("gray")}
+                icon={
+                  <span className="h-3 w-3 rounded-full border border-vellum-border-strong bg-vellum-elevated" />
+                }
+                label={"\u62a4\u773c\u7070"}
+                hint={"\u504f\u6d45\u7070\u4f4e\u5bf9\u6bd4"}
+              />
+              <ModeOption
+                active={theme === "system"}
+                onClick={() => setThemeMode("system")}
+                icon={<Monitor size={13} />}
+                label="跟随系统"
+                hint="随 macOS 切换"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase text-vellum-faint mb-2">
               Auth mode
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -155,7 +226,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
           {mode === "api" && (
             <div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+              <div className="text-[10px] uppercase text-vellum-faint mb-2">
                 Claude API Key
               </div>
               <div className="relative">
@@ -185,7 +256,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
           {mode === "cli" && (
             <div className="border border-vellum-border rounded p-3 bg-vellum-bg/50">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+              <div className="text-[10px] uppercase text-vellum-faint mb-2">
                 Claude CLI Binary
               </div>
               <div className="text-xs font-mono text-vellum-muted break-all">
@@ -200,7 +271,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           {mode === "openai" && (
             <div className="space-y-3">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
                   OpenAI API Key
                 </div>
                 <div className="relative">
@@ -227,7 +298,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
                   Model
                 </div>
                 <input
@@ -246,20 +317,20 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           {mode === "codex" && (
             <div className="space-y-3">
               <div className="border border-vellum-border rounded p-3 bg-vellum-bg/50">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
                   Codex CLI Binary
                 </div>
                 <div className="text-xs font-mono text-vellum-muted break-all">
                   /opt/homebrew/bin/codex
                 </div>
                 <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
-                  走你的 ChatGPT 订阅 (Logged in)。Tauri subprocess 调
-                  <code className="text-vellum-accent mx-1">codex exec</code>·
-                  Pass 2 用<code className="text-vellum-accent mx-1">-i</code>原生附图。
+                  走你的 ChatGPT 订阅 (Logged in)。Optimize / Finalize 都走
+                  <code className="text-vellum-accent mx-1">codex exec</code>；
+                  Finalize 用<code className="text-vellum-accent mx-1">-i</code>原生附图。
                 </div>
               </div>
               <div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-2">
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
                   Model
                 </div>
                 <input
@@ -273,9 +344,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 />
                 <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
                   默认 <code className="text-vellum-accent">gpt-5.5</code>。若提示 model 不存在，可换{" "}
-                  <code className="text-vellum-accent">gpt-5</code> /{" "}
-                  <code className="text-vellum-accent">gpt-4o</code> /{" "}
-                  <code className="text-vellum-accent">o3</code> 等。
+                  <code className="text-vellum-accent">gpt-5.2</code> /{" "}
+                  <code className="text-vellum-accent">gpt-5.1</code> 等。
                 </div>
               </div>
             </div>
@@ -294,8 +364,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               className={cn(
                 "px-3 py-1.5 rounded text-xs font-bold transition flex items-center gap-1.5",
                 saved
-                  ? "bg-vellum-success text-black"
-                  : "bg-vellum-accent hover:bg-vellum-accent-hover text-black disabled:opacity-40"
+                  ? "bg-vellum-success text-vellum-bg"
+                  : "bg-vellum-accent hover:bg-vellum-accent-hover text-vellum-bg disabled:opacity-40"
               )}
             >
               {saved ? (
@@ -346,7 +416,7 @@ function ModeOption({
     >
       <div
         className={cn(
-          "flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider mb-1",
+          "flex items-center gap-1.5 text-[11px] font-bold uppercase mb-1",
           active ? "text-vellum-accent" : "text-vellum-text"
         )}
       >

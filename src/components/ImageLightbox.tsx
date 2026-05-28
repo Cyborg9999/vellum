@@ -117,15 +117,15 @@ export function ImageLightbox({
         className="border-t border-white/10 px-5 py-3 flex items-center gap-3 shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-[10px] uppercase tracking-wider text-vellum-faint">role</div>
+        <div className="text-[10px] uppercase text-vellum-faint">role</div>
         <div className="flex gap-1">
           {ROLES.map((r) => (
             <button
               key={r}
               onClick={() => onRoleChange(current.id, r)}
-              className={`px-2.5 py-1 rounded text-[10px] uppercase tracking-wider font-bold transition ${
+              className={`px-2.5 py-1 rounded text-[10px] uppercase font-bold transition ${
                 current.role === r
-                  ? "bg-vellum-accent text-black"
+                  ? "bg-vellum-accent text-vellum-bg"
                   : "bg-vellum-elevated text-vellum-muted hover:text-vellum-text"
               }`}
             >

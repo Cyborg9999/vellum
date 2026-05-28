@@ -36,6 +36,20 @@ export interface RefImage {
   height: number | null;
   file_size: number | null;
   created_at: number;
+  /** null when active, unix timestamp when soft-deleted (migration 003) */
+  deleted_at: number | null;
+}
+
+export interface PromptEntry {
+  id: number;
+  project_id: number;
+  entry_number: number;
+  title: string;
+  draft_text: string;
+  first_pass_text: string;
+  final_pass_text: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Shot {

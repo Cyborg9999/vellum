@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ButtonHTMLAttributes, ElementType, ReactNode } from "react";
+import type { ElementType, ReactNode } from "react";
 import {
   Home,
   Search,
@@ -12,15 +12,20 @@ import {
   FolderOpen,
   Check,
   ChevronRight,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { RefImage } from "@/lib/types";
+import type { Project, RefImage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { LibraryView } from "@/components/LibraryView";
 import { ShotsView } from "@/components/ShotsView";
+import { SubmitView } from "@/components/SubmitView";
 import { SettingsButton } from "@/components/SettingsModal";
+import { ContextMenu } from "@/components/ContextMenu";
+import { RenameDialog } from "@/components/RenameDialog";
 
 type View = "library" | "shots" | "submit";
 
@@ -66,7 +71,7 @@ function TopBar({ view }: { view: View }) {
   const currentProject = useApp((s) => s.currentProject);
   const selectProject = useApp((s) => s.selectProject);
   return (
-    <header className="h-12 shrink-0 border-b border-vellum-border flex items-center px-3 gap-3">
+    <header className="h-12 shrink-0 flex items-center px-3 gap-3">
       <button
         onClick={() => selectProject(null)}
         title="Back to projects"
@@ -116,28 +121,48 @@ function Sidebar({
   const currentProject = useApp((s) => s.currentProject);
   const projects = useApp((s) => s.projects);
   const selectProject = useApp((s) => s.selectProject);
+  const renameProject = useApp((s) => s.renameProject);
+  const removeProject = useApp((s) => s.removeProject);
   const [openSwitcher, setOpenSwitcher] = useState(false);
+  const [projectMenu, setProjectMenu] = useState<{
+    x: number;
+    y: number;
+    project: Project;
+  } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
+
+  async function handleRenameProject(project: Project, next: string) {
+    if (!next || next === project.name) return;
+    await renameProject(project.id, next);
+  }
+
+  async function handleDeleteProject(project: Project) {
+    const ok = confirm(`删除项目「${project.name}」？`);
+    if (!ok) return;
+    await removeProject(project.id);
+    setOpenSwitcher(false);
+  }
 
   return (
-    <aside className="w-64 shrink-0 border-r border-vellum-border bg-vellum-panel flex flex-col overflow-y-auto">
+    <aside className="w-64 shrink-0 bg-vellum-panel flex flex-col overflow-y-auto overflow-x-hidden">
       {/* Active project + switcher */}
       <div className="p-3">
         <SectionLabel>Active Project</SectionLabel>
         <button
           onClick={() => setOpenSwitcher((v) => !v)}
           className={cn(
-            "w-full flex items-start gap-2 px-2.5 py-2 rounded bg-vellum-card border transition group",
+            "w-full flex items-start gap-2 px-2.5 py-2 rounded transition group",
             openSwitcher
-              ? "border-vellum-accent-border"
-              : "border-vellum-border hover:border-vellum-border-strong"
+              ? "bg-vellum-elevated"
+              : "hover:bg-vellum-elevated/60"
           )}
         >
           <FolderOpen
             size={13}
-            className="mt-0.5 text-vellum-accent shrink-0"
+            className="mt-0.5 text-vellum-muted shrink-0"
           />
           <div className="flex-1 min-w-0 text-left">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-vellum-faint">
+            <div className="text-[10px] uppercase text-vellum-faint">
               PRJ
             </div>
             <div className="text-sm text-vellum-text truncate">
@@ -154,8 +179,8 @@ function Sidebar({
         </button>
 
         {openSwitcher && (
-          <div className="mt-2 p-1.5 rounded bg-vellum-card border border-vellum-accent-border">
-            <div className="text-[10px] uppercase tracking-[0.15em] text-vellum-faint px-2 py-1.5 flex items-center gap-1.5">
+          <div className="mt-1.5 p-1 rounded bg-vellum-elevated/60">
+            <div className="text-[10px] uppercase text-vellum-faint px-2 py-1.5 flex items-center gap-1.5">
               <ChevronDown size={9} className="-rotate-90" />
               Switch project to
             </div>
@@ -166,11 +191,16 @@ function Sidebar({
                   selectProject(p);
                   setOpenSwitcher(false);
                 }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setProjectMenu({ x: e.clientX, y: e.clientY, project: p });
+                }}
                 className={cn(
                   "w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition",
                   p.id === currentProject?.id
-                    ? "bg-vellum-accent-soft text-vellum-text"
-                    : "hover:bg-vellum-elevated text-vellum-muted"
+                    ? "bg-vellum-card text-vellum-text"
+                    : "hover:bg-vellum-card/60 text-vellum-muted"
                 )}
               >
                 <Avatar letter={p.name.slice(0, 1)} />
@@ -183,7 +213,7 @@ function Sidebar({
                   )}
                 </div>
                 {p.id === currentProject?.id && (
-                  <Check size={11} className="text-vellum-accent" />
+                  <Check size={11} className="text-vellum-text" />
                 )}
               </button>
             ))}
@@ -192,7 +222,7 @@ function Sidebar({
                 setOpenSwitcher(false);
                 selectProject(null);
               }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 mt-1 border-t border-vellum-border pt-2 rounded text-vellum-muted hover:bg-vellum-elevated hover:text-vellum-text transition"
+              className="w-full flex items-center gap-2 px-2 py-1.5 mt-1 border-t border-vellum-border pt-2 rounded text-vellum-muted hover:bg-vellum-card hover:text-vellum-text transition"
             >
               <SettingsIcon size={11} />
               <span className="text-xs">Manage projects…</span>
@@ -201,10 +231,51 @@ function Sidebar({
         )}
       </div>
 
+      {projectMenu && (
+        <ContextMenu
+          x={projectMenu.x}
+          y={projectMenu.y}
+          onClose={() => setProjectMenu(null)}
+          items={[
+            {
+              label: "切换到项目",
+              icon: <FolderOpen size={12} />,
+              onSelect: () => {
+                selectProject(projectMenu.project);
+                setOpenSwitcher(false);
+              },
+            },
+            {
+              label: "重命名",
+              hint: "rename",
+              icon: <Pencil size={12} />,
+              onSelect: () => setRenameTarget(projectMenu.project),
+            },
+            { type: "separator" },
+            {
+              label: "删除项目",
+              hint: "delete",
+              icon: <Trash2 size={12} />,
+              destructive: true,
+              onSelect: () => void handleDeleteProject(projectMenu.project),
+            },
+          ]}
+        />
+      )}
+      {renameTarget && (
+        <RenameDialog
+          title="重命名项目"
+          initialValue={renameTarget.name}
+          placeholder="项目名"
+          onClose={() => setRenameTarget(null)}
+          onSubmit={(next) => handleRenameProject(renameTarget, next)}
+        />
+      )}
+
       {/* Workbench nav */}
       <div className="px-3">
         <SectionLabel>Workbench</SectionLabel>
-        <nav className="flex flex-col">
+        <nav className="flex flex-col gap-2">
           <LibraryNavItem active={view === "library"} onNav={() => setView("library")} />
           {NAV.filter((i) => i.id !== "library").map((item) => {
             const Icon = item.icon;
@@ -214,16 +285,13 @@ function Sidebar({
                 key={item.id}
                 onClick={() => setView(item.id)}
                 className={cn(
-                  "relative flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded text-sm transition",
+                  "flex items-center gap-3 px-4 py-2.5 rounded-full text-sm transition",
                   active
-                    ? "bg-vellum-accent-soft text-vellum-text"
-                    : "text-vellum-muted hover:bg-vellum-elevated hover:text-vellum-text"
+                    ? "bg-vellum-card text-vellum-accent ring-1 ring-vellum-accent-border shadow-[0_0_0_2px_rgba(212,208,200,0.04),0_0_14px_rgba(212,208,200,0.28)]"
+                    : "text-vellum-muted hover:bg-vellum-elevated/60 hover:text-vellum-text"
                 )}
               >
-                {active && (
-                  <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-vellum-accent rounded-r" />
-                )}
-                <Icon size={13} />
+                <Icon size={14} />
                 <span>{item.label}</span>
               </button>
             );
@@ -266,25 +334,22 @@ function LibraryNavItem({
     <div>
       <div
         className={cn(
-          "relative flex items-center rounded transition group",
+          "flex items-center rounded-full transition group",
           active
-            ? "bg-vellum-accent-soft text-vellum-text"
-            : "text-vellum-muted hover:bg-vellum-elevated hover:text-vellum-text"
+            ? "bg-vellum-card text-vellum-accent ring-1 ring-vellum-accent-border shadow-[0_0_0_2px_rgba(212,208,200,0.04),0_0_14px_rgba(212,208,200,0.28)]"
+            : "text-vellum-muted hover:bg-vellum-elevated/60 hover:text-vellum-text"
         )}
       >
-        {active && (
-          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-vellum-accent rounded-r" />
-        )}
         <button
           onClick={(e) => {
             e.stopPropagation();
             setExpanded((v) => !v);
           }}
-          className="pl-1.5 pr-1 py-1.5 hover:text-vellum-accent transition"
+          className="pl-3 pr-1 py-2.5 hover:text-vellum-text transition"
           title={expanded ? "collapse" : "expand"}
         >
           <ChevronRight
-            size={11}
+            size={12}
             className={cn(
               "transition-transform",
               expanded && "rotate-90"
@@ -293,7 +358,7 @@ function LibraryNavItem({
         </button>
         <button
           onClick={onNav}
-          className="flex-1 flex items-center gap-2 pr-2 py-1.5 text-sm text-left"
+          className="flex-1 flex items-center gap-3 pr-4 py-2.5 text-sm text-left"
         >
           <span>Library</span>
           <span className="ml-auto text-[10px] text-vellum-faint font-mono">
@@ -302,13 +367,13 @@ function LibraryNavItem({
         </button>
       </div>
       {expanded && (
-        <div className="pl-5 pr-1 py-1.5">
+        <div className="pl-5 pr-1 pt-4 pb-3">
           {refImages.length === 0 ? (
             <div className="text-[10px] text-vellum-dim italic py-1 px-1">
               empty · import in Library
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-3 gap-1.5">
               {refImages.map((img) => (
                 <Thumb key={img.id} img={img} onClick={onNav} />
               ))}
@@ -362,7 +427,7 @@ function Thumb({
           paddingLeft: "3px",
           letterSpacing: "-0.02em",
           textShadow:
-            "0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,1), 0 0 10px rgba(57,255,20,0.45)",
+            "0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,1), 0 0 8px rgba(212,208,200,0.35)",
         }}
       >
         {img.image_index}
@@ -376,7 +441,7 @@ function Thumb({
 function StatusBar() {
   const projects = useApp((s) => s.projects);
   return (
-    <footer className="h-6 shrink-0 border-t border-vellum-border bg-vellum-panel flex items-center px-3 text-[10px] uppercase tracking-wider text-vellum-faint">
+    <footer className="h-6 shrink-0 border-t border-vellum-border bg-vellum-panel flex items-center px-3 text-[10px] uppercase text-vellum-faint">
       <div className="flex items-center gap-1.5">
         <div className="w-1.5 h-1.5 rounded-full bg-vellum-accent" />
         <span>{projects.length} prj</span>
@@ -396,87 +461,20 @@ function StatusBar() {
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="text-[10px] uppercase tracking-[0.18em] text-vellum-faint mb-1.5 px-1.5">
+    <div className="text-[10px] uppercase text-vellum-faint mb-1.5 px-1.5">
       {children}
     </div>
   );
 }
 
 function Sep() {
-  return <span className="mx-2 text-vellum-dim">·</span>;
+  return <span className="mx-4 text-vellum-dim">·</span>;
 }
 
 function Avatar({ letter }: { letter: string }) {
   return (
     <div className="w-5 h-5 rounded-sm flex items-center justify-center text-[10px] bg-vellum-elevated text-vellum-accent border border-vellum-border shrink-0">
       {letter.toUpperCase()}
-    </div>
-  );
-}
-
-function ViewHeader({
-  title,
-  subtitle,
-  actions,
-}: {
-  title: string;
-  subtitle?: ReactNode;
-  actions?: ReactNode;
-}) {
-  return (
-    <div className="border-b border-vellum-border px-8 py-7 flex items-end justify-between gap-4">
-      <div>
-        <h1 className="text-vellum-accent text-3xl font-medium tracking-[0.18em] uppercase">
-          {title}
-        </h1>
-        {subtitle && (
-          <div className="text-[11px] text-vellum-muted mt-3 uppercase tracking-wider flex items-center gap-1">
-            {subtitle}
-          </div>
-        )}
-      </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
-    </div>
-  );
-}
-
-function PrimaryButton(
-  props: ButtonHTMLAttributes<HTMLButtonElement>
-) {
-  return (
-    <button
-      {...props}
-      className={cn(
-        "px-3 py-1.5 rounded text-xs bg-vellum-accent hover:bg-vellum-accent-hover text-vellum-bg font-medium flex items-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed",
-        props.className
-      )}
-    />
-  );
-}
-
-// ─── Views ──────────────────────────────────────────────────────────
-
-function SubmitView() {
-  return (
-    <div>
-      <ViewHeader
-        title="Submit"
-        subtitle={
-          <>
-            <span>0 in queue</span>
-            <Sep />
-            <span className="text-vellum-warning">即梦 CLI not configured</span>
-          </>
-        }
-        actions={
-          <PrimaryButton disabled>
-            <Send size={11} /> Submit all
-          </PrimaryButton>
-        }
-      />
-      <div className="p-8 text-vellum-muted text-sm">
-        批量提交到即梦 CLI · (图N) 自动绑定参考图
-      </div>
     </div>
   );
 }

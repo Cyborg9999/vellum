@@ -52,6 +52,12 @@
           "cmd": "/opt/homebrew/bin/codex",
           "args": true,
           "sidecar": false
+        },
+        {
+          "name": "dreamina",
+          "cmd": "/Users/chengyue/.local/bin/dreamina",
+          "args": true,
+          "sidecar": false
         }
       ]
     }

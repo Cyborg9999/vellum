@@ -28,6 +28,8 @@ function detectBinding(
 interface Props {
   value: string;
   onChange: (value: string) => void;
+  onClear?: () => void;
+  onBlur?: () => void;
   placeholder?: string;
   minRows?: number;
   className?: string;
@@ -111,6 +113,8 @@ interface PopupState {
 export function RichTextarea({
   value,
   onChange,
+  onClear,
+  onBlur,
   placeholder,
   minRows = 8,
   className,
@@ -139,10 +143,16 @@ export function RichTextarea({
     content: deserializeTextToJson(value, refImagesByIndexRef.current),
     editorProps: {
       attributes: {
-        class: `vellum-richtext px-3.5 py-3 outline-none text-[13px] leading-relaxed font-mono min-h-[${
+        class: `vellum-richtext px-3.5 py-3 pr-16 outline-none text-[13px] leading-relaxed font-mono min-h-[${
           minRows * 1.6
         }em]`,
         spellcheck: "false",
+      },
+      handleDOMEvents: {
+        blur() {
+          onBlur?.();
+          return false;
+        },
       },
       handleKeyDown(view, event) {
         const open = popupRef.current;
@@ -346,6 +356,15 @@ export function RichTextarea({
     setPopup(null);
   }
 
+  function handleClear() {
+    if (!editor) return;
+    editor.commands.clearContent(false);
+    onChange("");
+    onClear?.();
+    setPopup(null);
+    requestAnimationFrame(() => editor.commands.focus());
+  }
+
   // Re-sync content when value changes externally
   useEffect(() => {
     if (!editor) return;
@@ -373,14 +392,25 @@ export function RichTextarea({
 
   return (
     <div
-      className={`vellum-richtext-wrapper relative bg-vellum-bg border border-vellum-border rounded focus-within:border-vellum-accent-border transition ${
+      className={`vellum-richtext-wrapper relative bg-vellum-bg/80 rounded transition focus-within:bg-vellum-bg ${
         className ?? ""
       }`}
     >
       {placeholder && editor && editor.isEmpty && (
-        <div className="absolute inset-0 pointer-events-none px-3.5 py-3 text-[13px] leading-relaxed text-vellum-dim whitespace-pre-line font-mono">
+        <div className="absolute inset-0 pointer-events-none px-3.5 py-3 pr-16 text-[13px] leading-relaxed text-vellum-dim whitespace-pre-line font-mono">
           {placeholder}
         </div>
+      )}
+      {editor && !editor.isEmpty && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleClear}
+          className="absolute top-2 right-2 z-10 px-2 py-1 rounded text-[10px] text-vellum-faint bg-vellum-elevated/70 hover:bg-vellum-card-hi hover:text-vellum-text transition"
+          title="一键清空"
+        >
+          清空
+        </button>
       )}
       <EditorContent editor={editor} />
       {popup &&

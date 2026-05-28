@@ -46,7 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
             页面里某个组件抛了未捕获错误，整个 UI 被熔断保护。这通常意味着代码 bug 或 store/DB 状态不一致。
           </div>
           <div className="border border-red-900/60 bg-red-950/20 rounded p-4 mb-4">
-            <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1.5">
+            <div className="text-[10px] uppercase text-red-400 mb-1.5">
               error
             </div>
             <div className="font-mono text-xs text-red-300 break-all">
@@ -54,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             {this.state.error?.stack && (
               <details className="mt-3">
-                <summary className="text-[10px] uppercase tracking-wider text-vellum-faint cursor-pointer hover:text-vellum-muted">
+                <summary className="text-[10px] uppercase text-vellum-faint cursor-pointer hover:text-vellum-muted">
                   stack trace
                 </summary>
                 <pre className="mt-2 text-[10px] font-mono text-vellum-muted whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
@@ -64,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
             )}
             {this.state.componentStack && (
               <details className="mt-2">
-                <summary className="text-[10px] uppercase tracking-wider text-vellum-faint cursor-pointer hover:text-vellum-muted">
+                <summary className="text-[10px] uppercase text-vellum-faint cursor-pointer hover:text-vellum-muted">
                   component stack
                 </summary>
                 <pre className="mt-2 text-[10px] font-mono text-vellum-muted whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
@@ -76,7 +76,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="flex gap-2">
             <button
               onClick={this.reset}
-              className="px-4 py-2 rounded text-xs bg-vellum-accent hover:bg-vellum-accent-hover text-black font-bold transition"
+              className="px-4 py-2 rounded text-xs bg-vellum-accent hover:bg-vellum-accent-hover text-vellum-bg font-bold transition"
             >
               Try again
             </button>

@@ -76,7 +76,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
         {binding ? (
           <div className="mx-1 mb-1 px-2.5 py-1.5 rounded bg-vellum-accent-soft border border-vellum-accent-border flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-vellum-accent" />
-            <span className="text-[10px] uppercase tracking-wider text-vellum-faint">
+            <span className="text-[10px] uppercase text-vellum-faint">
               binding
             </span>
             <span className="text-[11px] text-vellum-accent font-bold">
@@ -87,7 +87,7 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
             </span>
           </div>
         ) : (
-          <div className="text-[9px] uppercase tracking-[0.2em] text-vellum-faint px-2 py-1.5">
+          <div className="text-[9px] uppercase text-vellum-faint px-2 py-1.5">
             insert reference
           </div>
         )}

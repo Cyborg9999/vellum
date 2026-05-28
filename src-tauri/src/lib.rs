@@ -21,6 +21,24 @@ pub fn run() {
             sql: include_str!("../migrations/002_workflow_fields.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "soft_delete_ref_images",
+            sql: include_str!("../migrations/003_soft_delete.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "add_prompt_entries",
+            sql: include_str!("../migrations/004_prompt_entries.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "rename_prompt_entries_to_segments",
+            sql: include_str!("../migrations/005_rename_prompt_entries.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

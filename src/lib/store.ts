@@ -23,6 +23,7 @@ interface AppState {
   init: () => Promise<void>;
   selectProject: (project: Project | null) => void;
   newProject: (name: string, description?: string) => Promise<Project>;
+  renameProject: (id: number, name: string) => Promise<void>;
   removeProject: (id: number) => Promise<void>;
   patchCurrentProject: (
     patch: Partial<
@@ -79,6 +80,20 @@ export const useApp = create<AppState>((set, get) => ({
       refImages: [],
     }));
     return project;
+  },
+
+  renameProject: async (id, name) => {
+    await updateProject(id, { name });
+    const updatedAt = Math.floor(Date.now() / 1000);
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === id ? { ...p, name, updated_at: updatedAt } : p
+      ),
+      currentProject:
+        s.currentProject?.id === id
+          ? { ...s.currentProject, name, updated_at: updatedAt }
+          : s.currentProject,
+    }));
   },
 
   removeProject: async (id) => {
