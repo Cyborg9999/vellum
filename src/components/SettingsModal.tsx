@@ -260,7 +260,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 Claude CLI Binary
               </div>
               <div className="text-xs font-mono text-vellum-muted break-all">
-                /Users/chengyue/.local/bin/claude
+                whichever path you set in capabilities/default.json
               </div>
               <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
                 Tauri subprocess 调你 Claude Code 订阅 · 30-60s/调用

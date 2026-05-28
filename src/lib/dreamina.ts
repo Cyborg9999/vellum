@@ -1,5 +1,6 @@
 // Dreamina (即梦) CLI subprocess wrapper.
-// Binary: /Users/chengyue/.local/bin/dreamina  (whitelisted in capabilities/default.json as "dreamina")
+// Binary path is whitelisted in src-tauri/capabilities/default.json as
+// "dreamina" — see SETUP.md for how to point it at your own install.
 //
 // Flagship video mode: multimodal2video (formerly ref2video, "全能参考")
 //   - Seedance 2.0 family

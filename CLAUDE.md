@@ -175,34 +175,13 @@ DB 位置: `~/Library/Application Support/studio.vellum.desktop/vellum.db`
 
 ## 资源
 
-- 工作流原始描述 + 截图：见 `~/.claude/projects/-Users-chengyue/memory/project_vellum.md`
-- Signature 风格栈：见 `~/.claude/projects/-Users-chengyue/memory/project_jimeng_video.md`
-- 提示词必须 flowing prose 不带 slot 标签：`~/.claude/projects/-Users-chengyue/memory/feedback_prose_not_template.md`
+- 提示词工程方法论：[docs/methodology.md](docs/methodology.md) — Pass 1 / Pass 2 设计、风格预设、镜头模板
+- 安装与首次启动：[SETUP.md](SETUP.md)
 
-## 用户偏好（重要）
+## 项目约定（给协作者）
 
-- **autonomous execution** — 拒绝过度澄清，倾向直接动手
-- **持续视觉反馈** — 操作中长时间无反应必加可见进度指示器
-- **测过再交付** — 之前因为没自测推上崩按钮被批评过，凡涉及关键路径必须验证
-- **fluorescent green #39ff14** 是品牌主色，logo 用 **DM Serif Display Italic 纯绿 + glow**（替换了原 Orbitron 渐变）
-- **安全 hardening 倾向** — capabilities 倾向收紧而非放宽（fs:scope 精确路径而非 `**`，shell 命令绝对路径白名单，codex 用 read-only sandbox 而非 --dangerously-bypass）
-- **Claude Code plugin marketplace 偏好**：用户主用 **xiaolai 的第三方 marketplace**（`github.com/xiaolai/claude-plugin-marketplace`）而非 Anthropic 官方 curated。已装 nlpm。需要推荐别的 plugin 时优先建议 xiaolai 源，找不到再 fallback 到 `anthropics/claude-plugins-community`。Anthropic 官方 `claude-plugins-official`（~203 个）无公开申请通道，仅 Anthropic 员工筛选。
-
-## Claude Code plugin marketplace 速查
-
-```bash
-# 注册 marketplace（一次性）
-/plugin marketplace add xiaolai/claude-plugin-marketplace
-/plugin marketplace add anthropics/claude-plugins-community
-
-# 浏览某个 marketplace 的清单
-/plugin marketplace browse xiaolai-claude-plugin-marketplace
-
-# 装
-/plugin install <name>@xiaolai-claude-plugin-marketplace
-
-# 卸
-/plugin uninstall <name>
-```
-
-"Plugin submissions" 页面（claude.ai 内）= 自助提交门户。"Published" 状态 = **进了 community 池**，**不等于**进官方 curated 池。Anthropic 官方原话："submission form does not add plugins to the official marketplace"。
+- **测过再交付** — 改了关键路径（Library / Shots / Submit / DB migration）后跑 `npm test` + 至少手测一次再 push
+- **持续视觉反馈** — 任何 > 3 秒的操作必须有进度指示器（参考 `optimizeElapsed` / `finalizeElapsed` 模式）
+- **安全 hardening 倾向** — `capabilities/default.json` 倾向收紧而非放宽（fs:scope 精确路径而非 `**`，shell 命令绝对路径白名单，codex 用 `--sandbox read-only`）
+- **品牌色** fluorescent green `#39ff14`；Logo 字体 DM Serif Display Italic 纯绿 + glow
+- **Commit message** 风格：中文标题 + `类别: 描述`（feat / fix / chore / test / docs）；不加 `Co-Authored-By` trailer。详见 [CONTRIBUTING.md](CONTRIBUTING.md)

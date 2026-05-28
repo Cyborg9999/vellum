@@ -76,3 +76,8 @@ src-tauri/*.key
 
 # ─── Local audit / scratch artifacts ────────────────────────────
 grill-report-*.md
+
+# ─── Local working notes (per-machine, not shared) ──────────────
+.claude/notes.local.md
+.claude/nlpm-history.json
+docs/.private/
