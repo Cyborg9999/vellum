@@ -73,3 +73,6 @@ src-tauri/*.key
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# ─── Local audit / scratch artifacts ────────────────────────────
+grill-report-*.md

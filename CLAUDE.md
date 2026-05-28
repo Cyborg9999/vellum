@@ -19,7 +19,7 @@
 | Pass 1 prompt: 拆镜头+大量细化（80-180字/镜头，物理反应、衣摆翻飞、火花裂痕） | ✅ | `镜头N，[镜头类型]，...` 中文逗号格式 |
 | Pass 2 prompt: 用户给的固定指令 + 1800 字内 + 3D/Blur/胡金铨 + 保留视角修饰词 | ✅ | 见 `src/lib/claude.ts` PASS_2_USER_INSTRUCTION |
 | Submit stage: 自动扫 (图N) 引用 → 拼 `人物=图片1,图片4` `场景=图片2` header | ✅ | `buildSubmitPayload` in claude.ts |
-| Settings: 4 个 Auth mode (Claude API / Claude CLI / OpenAI API / Codex CLI) | ✅ | 2×2 grid 卡片切换 |
+| Settings: 4 个 Auth mode (Claude API / Claude CLI / OpenAI API / Codex CLI) | ✅ | 2×2 grid 卡片切换；Codex CLI 走提示词优化专用 wrapper |
 | TipTap rich editor + @ 触发 image picker | ✅ | 手写 keydown + createPortal，绕开 TipTap Mention |
 | 绑定规则: 主角/场景/道具@图 → role-aware popup (banner + 排序) | ✅ | 见下文「绑定规则」 |
 | Logo: DM Serif Display Italic + 纯荧光绿 + glow（去渐变） | ✅ | 之前是 Orbitron 渐变，已换 |
@@ -142,10 +142,10 @@ const BINDING_PATTERNS = [
 "api"     → Anthropic fetch · 快 3-10s · 要 API key
 "cli"     → claude --print subprocess · 走 Claude Code 订阅 · 慢 30-60s
 "openai"  → OpenAI fetch (Chat Completions) · 快 5-25s · 要 OpenAI key · Vision via image_url base64
-"codex"   → codex exec subprocess · 走 ChatGPT 订阅 · 原生 -i 附图 · --sandbox read-only --ask-for-approval never (用户已 hardened)
+"codex"   → codex exec subprocess · 走 ChatGPT 订阅 · 原生 -i 附图 · --sandbox read-only · --ephemeral · 纯文本提示词优化 wrapper
 ```
 
-settings keys: `claude_auth_mode` / `claude_api_key` / `openai_api_key` / `openai_model` (默认 gpt-5) / `codex_model` (默认 gpt-5.5)。
+settings keys: `claude_auth_mode`（未设置时默认 codex） / `claude_api_key` / `openai_api_key` / `openai_model` (默认 gpt-5) / `codex_model` (默认 gpt-5.5)。
 
 加速可选：未来接 `@anthropic-ai/claude-agent-sdk`（同订阅，Node 进程内调，零启动开销）。
 
@@ -159,7 +159,7 @@ settings keys: `claude_auth_mode` / `claude_api_key` / `openai_api_key` / `opena
 - **submissions** — 即梦 CLI 提交记录（status: queued|running|success|failed）
 - **settings** — key-value 存 `claude_api_key`, `claude_auth_mode` 等
 
-DB 位置: `~/Library/Application Support/studio.vellum.app/vellum.db`
+DB 位置: `~/Library/Application Support/studio.vellum.desktop/vellum.db`
 
 ## 已知陷阱
 
@@ -169,7 +169,7 @@ DB 位置: `~/Library/Application Support/studio.vellum.app/vellum.db`
 4. **macOS Dock 缓存图标** — 改 icon 后要 `killall Dock` 才看到新的
 5. **`tauri build` 的 bundle_dmg.sh 偶尔崩** — 不影响 .app，重跑一次通常 OK
 6. **MJ 文件改名用逐个 `mv` 代替 `rm -f glob`** — MJ 文件名带空格 + 数字后缀，glob 可能跳过，逐个 mv 更稳
-7. **codex CLI 必须用 `--sandbox read-only --ask-for-approval never`** — 不能用 `--dangerously-bypass`，已用户 hardened
+7. **codex CLI 必须用 `--sandbox read-only`** — 不能用 `--dangerously-bypass`；codex-cli ≥0.133 已移除旧 `--ask-for-approval never`
 8. **fs:scope 已收紧** — 只放行 `$APPDATA / $APPLOCALDATA / $PICTURE / $DOWNLOAD / $DESKTOP / $DOCUMENT / $HOME/Projects/**`。Library import 选别处图会被拒
 9. **release build 默认无 devtools** — Cargo.toml 已改 opt-in feature flag。需要调试加 `--features devtools`
 

@@ -1,40 +1,119 @@
 @import "tailwindcss";
 /* Orbitron font is loaded via <link> in index.html to avoid @import ordering issues with Tailwind 4 */
 
+@font-face {
+  font-family: "Vellum News";
+  src: url("/fonts/Newsreader-Italic-opsz-wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Vellum Display";
+  src: url("/fonts/BodoniModa-Italic-opsz-wght.ttf") format("truetype");
+  font-weight: 400 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Vellum Editorial";
+  src: url("/fonts/CormorantGaramond-Italic-wght.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 @theme {
-  /* Terminal-elegant dark with fluorescent green accent */
-  --color-vellum-bg: #0a0a0a;
-  --color-vellum-panel: #0a0a0a;
-  --color-vellum-elevated: #141414;
-  --color-vellum-card: #0e0e0e;
-  --color-vellum-card-hi: #161616;
+  /* Warm-neutral dark — parchment grays (the actual color of vellum paper)
+     replace the previous fluorescent green. Tone reference: Midjourney UI. */
+  --color-vellum-bg: #0c0c0d;
+  --color-vellum-panel: #0c0c0d;
+  --color-vellum-elevated: #1a1a1b;
+  --color-vellum-card: #121213;
+  --color-vellum-card-hi: #1d1d1e;
 
-  --color-vellum-border: rgba(255, 255, 255, 0.06);
-  --color-vellum-border-strong: rgba(255, 255, 255, 0.14);
+  --color-vellum-border: rgba(255, 255, 255, 0.07);
+  --color-vellum-border-strong: rgba(255, 255, 255, 0.18);
 
-  --color-vellum-text: #e8e8e8;
-  --color-vellum-muted: #8a8a8a;
-  --color-vellum-faint: #525252;
-  --color-vellum-dim: #2a2a2a;
+  --color-vellum-text: #ebe9e5;
+  --color-vellum-muted: #9a978f;
+  --color-vellum-faint: #5a5853;
+  --color-vellum-dim: #2c2b29;
 
-  /* Fluorescent green primary */
-  --color-vellum-accent: #39ff14;
-  --color-vellum-accent-hover: #7dff5a;
-  --color-vellum-accent-soft: rgba(57, 255, 20, 0.12);
-  --color-vellum-accent-border: rgba(57, 255, 20, 0.4);
+  /* Warm-parchment primary (replaces #39ff14 neon green).
+     Semantic fit: vellum is literally a paper color. */
+  --color-vellum-accent: #d4d0c8;
+  --color-vellum-accent-hover: #ece8df;
+  --color-vellum-accent-soft: rgba(212, 208, 200, 0.10);
+  --color-vellum-accent-border: rgba(212, 208, 200, 0.32);
 
-  /* Cover image neon palette companions */
+  /* Cover image neon palette companions (unchanged — used by placeholder) */
   --color-vellum-neon-cyan: #00e6e6;
   --color-vellum-neon-magenta: #ff3df1;
-  --color-vellum-success: #5dc862;
-  --color-vellum-warning: #e0a949;
+  --color-vellum-success: #7dbf83;
+  --color-vellum-warning: #d8a564;
 
+  --font-brand: "GT Sectra Display Super Italic", "GT Sectra Display Bold Italic", "GT Sectra Fine Bold Italic", "GT Sectra Bold Italic", "GT Sectra Display", "GT Sectra Fine", "GT Sectra", "GT Sectra Display Trial", "GT Sectra Fine Trial", "GT Sectra Trial", "Vellum News", "Vellum Display", "Vellum Editorial", "DM Serif Display", "Cormorant Garamond", "Didot", "Bodoni 72", Georgia, serif;
   --font-display: "DM Serif Display", "Cormorant Garamond", "Didot", "Bodoni 72", Georgia, serif;
+}
+
+:root[data-theme="light"] {
+  --color-vellum-bg: #f3f0e8;
+  --color-vellum-panel: #ebe6dc;
+  --color-vellum-elevated: #ded7ca;
+  --color-vellum-card: #fffdf8;
+  --color-vellum-card-hi: #f7f2e8;
+
+  --color-vellum-border: rgba(42, 36, 29, 0.12);
+  --color-vellum-border-strong: rgba(42, 36, 29, 0.24);
+
+  --color-vellum-text: #171411;
+  --color-vellum-muted: #665f55;
+  --color-vellum-faint: #9a9184;
+  --color-vellum-dim: #c9c1b4;
+
+  --color-vellum-accent: #28221d;
+  --color-vellum-accent-hover: #11100e;
+  --color-vellum-accent-soft: rgba(40, 34, 29, 0.08);
+  --color-vellum-accent-border: rgba(40, 34, 29, 0.26);
+
+  --color-vellum-success: #3f7e4c;
+  --color-vellum-warning: #9b6834;
+}
+
+:root[data-theme="gray"] {
+  --color-vellum-bg: #aeaca6;
+  --color-vellum-panel: #a6a39d;
+  --color-vellum-elevated: #9c9a93;
+  --color-vellum-card: #b8b6b0;
+  --color-vellum-card-hi: #bebcb6;
+
+  --color-vellum-border: rgba(43, 40, 35, 0.14);
+  --color-vellum-border-strong: rgba(43, 40, 35, 0.28);
+
+  --color-vellum-text: #2b2823;
+  --color-vellum-muted: #5a554f;
+  --color-vellum-faint: #746f66;
+  --color-vellum-dim: #908980;
+
+  --color-vellum-accent: #38332e;
+  --color-vellum-accent-hover: #24211d;
+  --color-vellum-accent-soft: rgba(56, 51, 46, 0.10);
+  --color-vellum-accent-border: rgba(56, 51, 46, 0.28);
+
+  --color-vellum-success: #3f6748;
+  --color-vellum-warning: #7b5731;
 }
 
 @layer base {
   :root {
     color-scheme: dark;
+  }
+  :root[data-theme="light"],
+  :root[data-theme="gray"] {
+    color-scheme: light;
   }
   html,
   body,
@@ -66,6 +145,14 @@
   ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.14);
   }
+  :root[data-theme="light"] ::-webkit-scrollbar-thumb,
+  :root[data-theme="gray"] ::-webkit-scrollbar-thumb {
+    background: rgba(47, 43, 38, 0.14);
+  }
+  :root[data-theme="light"] ::-webkit-scrollbar-thumb:hover,
+  :root[data-theme="gray"] ::-webkit-scrollbar-thumb:hover {
+    background: rgba(47, 43, 38, 0.24);
+  }
   button:focus,
   input:focus,
   textarea:focus {
@@ -73,16 +160,25 @@
   }
 }
 
-/* Vellum logo — DM Serif Display italic, solid neon green with soft glow */
-.vellum-logo {
-  font-family: var(--font-display);
-  font-weight: 400; /* DM Serif Display only ships regular weight; its serifs are already heavy */
+/* Vellum wordmark — GT Sectra when installed, with a heavier editorial cut. */
+.vellum-wordmark {
+  font-family: var(--font-brand);
+  font-weight: 400;
   font-style: italic;
   color: var(--color-vellum-accent);
-  letter-spacing: 0.01em;
-  text-shadow:
-    0 0 24px rgba(57, 255, 20, 0.35),
-    0 0 60px rgba(57, 255, 20, 0.18);
+  letter-spacing: 0;
+  font-variation-settings: "opsz" 72, "wght" 400;
+  font-synthesis: none;
+}
+
+.vellum-logo {
+  font-family: var(--font-brand);
+  font-weight: 400;
+  font-style: italic;
+  color: var(--color-vellum-accent);
+  letter-spacing: 0;
+  font-variation-settings: "opsz" 72, "wght" 400;
+  font-synthesis: none;
 }
 
 /* Rich text inline image chip — "[round-thumb] 图片N" pill */
@@ -93,7 +189,7 @@
   margin: 0 2px;
   padding: 1px 8px 1px 2px;
   border-radius: 999px;
-  background: rgba(57, 255, 20, 0.08);
+  background: rgba(212, 208, 200, 0.07);
   border: 1px solid var(--color-vellum-accent-border);
   vertical-align: -4px;
   user-select: none;
@@ -102,7 +198,7 @@
   transition: background 120ms ease, border-color 120ms ease;
 }
 .vellum-img-badge:hover {
-  background: rgba(57, 255, 20, 0.16);
+  background: rgba(212, 208, 200, 0.14);
   border-color: var(--color-vellum-accent);
 }
 .vellum-img-badge-thumb {
@@ -147,7 +243,26 @@
   padding: 0;
 }
 
-/* Cover image placeholder (red/magenta neon) until file drops in */
+/* Cover image placeholder (red/magenta neon) until file drops in.
+ * Dark theme keeps the original neon glow; light/gray themes get a muted
+ * parchment wash so the placeholder doesn't visually punch through the
+ * editorial palette. */
+:root[data-theme="light"] .workspace-bg-placeholder,
+:root[data-theme="gray"] .workspace-bg-placeholder {
+  background:
+    radial-gradient(
+      ellipse at 50% 30%,
+      rgba(120, 90, 60, 0.18),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at 50% 70%,
+      rgba(160, 140, 110, 0.14),
+      transparent 50%
+    ),
+    linear-gradient(180deg, var(--color-vellum-elevated) 0%, var(--color-vellum-bg) 100%) !important;
+}
+
 .workspace-bg-placeholder {
   background:
     radial-gradient(

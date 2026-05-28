@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "release": "npm run tauri build -- --bundles app && pkill -9 -f 'Vellum.app/Contents/MacOS/vellum' 2>/dev/null; rm -rf /Applications/Vellum.app && cp -R src-tauri/target/release/bundle/macos/Vellum.app /Applications/Vellum.app && rm -rf src-tauri/target/release/bundle/macos/Vellum.app && killall Dock && echo '✓ Vellum.app updated in /Applications · old process killed · ⌘Space \"vellum\" or click Dock icon to relaunch'"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
