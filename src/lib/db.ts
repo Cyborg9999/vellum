@@ -20,6 +20,11 @@ export function getDb(): Promise<Database> {
 
 const now = () => Math.floor(Date.now() / 1000);
 
+// Per-project async mutex for compactImageIndices. Prevents two concurrent
+// compactions (e.g. bulk delete loop + Library auto-refresh) from racing
+// over the transient parking slot space (-1000-N). See grill C2.
+const compactQueues = new Map<number, Promise<void>>();
+
 // ── Projects ────────────────────────────────────────────────────────
 
 export async function listProjects(): Promise<Project[]> {
@@ -158,137 +163,184 @@ async function getProjectIdForRefImage(id: number): Promise<number | null> {
 
 /**
  * Densify the active image_index sequence to 1..N (ordered by current index)
- * and rewrite (图OLD) references in shots and project text to match. Called
- * after delete / restore / permanent delete and also on initial Library load
- * so the user always sees clean, sequential numbering. Trashed rows keep
- * their stale index — restore will trigger another compaction.
+ * and rewrite (图OLD) references in shots, projects, and prompt_entries to
+ * match. Called after delete / restore / permanent delete and on initial
+ * Library load.
  *
- * Uses a placeholder pass to avoid collisions during rewrite. Pure SQL — no
- * Tauri-side transaction (plugin-sql doesn't expose one), so a crash mid-way
- * could leave numbering inconsistent. Worst case: re-run via re-add+delete.
+ * Hardening (grill C1/C2/C3):
+ *  - C2: per-project async mutex serializes overlapping calls so two
+ *    in-flight compactions can't collide in the transient parking range.
+ *  - C3: idempotent fast-path — when the active set is already 1..N and no
+ *    trashed rows squat on positive indices, return without writes.
+ *  - C1: mutating passes are wrapped in BEGIN / COMMIT (ROLLBACK on throw).
+ *    tauri-plugin-sql routes raw statements to the active connection, so
+ *    this gives best-effort atomicity. If the pool ever routes BEGIN and
+ *    follow-up writes to different connections the worst case is the
+ *    pre-hotfix behavior — no regression.
  */
 export async function compactImageIndices(projectId: number): Promise<void> {
+  const prev = compactQueues.get(projectId) ?? Promise.resolve();
+  const job = prev
+    .catch(() => undefined)
+    .then(() => compactImageIndicesInner(projectId));
+  compactQueues.set(projectId, job);
+  try {
+    await job;
+  } finally {
+    if (compactQueues.get(projectId) === job) compactQueues.delete(projectId);
+  }
+}
+
+async function compactImageIndicesInner(projectId: number): Promise<void> {
   const db = await getDb();
 
-  // Step 0: park any trashed rows still occupying positive index slots into a
-  // high-negative range (-100000 - id, guaranteed unique). The schema has
-  // UNIQUE(project_id, image_index), so trashed rows holding 1..N would
-  // collide with the compacted active set. Self-healing for legacy data.
-  await db.execute(
-    `UPDATE ref_images SET image_index = -100000 - id
-     WHERE project_id = ? AND deleted_at IS NOT NULL
-       AND image_index >= 0`,
-    [projectId]
-  );
-
-  const rows = await db.select<{ id: number; image_index: number }[]>(
+  // C3 fast-path: read current state, return early if nothing to do.
+  const activeRows = await db.select<{ id: number; image_index: number }[]>(
     `SELECT id, image_index FROM ref_images
      WHERE project_id = ? AND deleted_at IS NULL
      ORDER BY image_index ASC`,
     [projectId]
   );
+  const needsActiveRemap = activeRows.some((r, i) => r.image_index !== i + 1);
+
+  const trashedPositive = await db.select<{ c: number }[]>(
+    `SELECT COUNT(*) as c FROM ref_images
+     WHERE project_id = ? AND deleted_at IS NOT NULL AND image_index >= 0`,
+    [projectId]
+  );
+  const needsTrashPark = (trashedPositive[0]?.c ?? 0) > 0;
+
+  if (!needsActiveRemap && !needsTrashPark) return;
 
   const remap = new Map<number, number>();
-  rows.forEach((r, i) => {
+  activeRows.forEach((r, i) => {
     const next = i + 1;
     if (r.image_index !== next) remap.set(r.image_index, next);
   });
-  if (remap.size === 0) return;
 
-  // Two-pass UPDATE: first park each active row in a transient negative slot
-  // (small negatives, distinct from trashed rows at -100000-), then write the
-  // desired positive index. Prevents intra-active swap collisions.
-  for (const r of rows) {
-    const desired = remap.get(r.image_index) ?? r.image_index;
-    await db.execute(
-      "UPDATE ref_images SET image_index = ? WHERE id = ?",
-      [-1000 - desired, r.id]
-    );
-  }
-  for (const r of rows) {
-    const desired = remap.get(r.image_index) ?? r.image_index;
-    await db.execute(
-      "UPDATE ref_images SET image_index = ? WHERE id = ?",
-      [desired, r.id]
-    );
-  }
-
-  // Rewrite (图N) text refs in shots
-  const shots = await db.select<
-    { id: number; raw_prompt: string; enhanced_prompt: string }[]
-  >(
-    "SELECT id, raw_prompt, enhanced_prompt FROM shots WHERE project_id = ?",
-    [projectId]
-  );
-  for (const s of shots) {
-    const raw = applyImageRemap(s.raw_prompt ?? "", remap);
-    const enh = applyImageRemap(s.enhanced_prompt ?? "", remap);
-    if (raw !== (s.raw_prompt ?? "") || enh !== (s.enhanced_prompt ?? "")) {
+  // C1: wrap mutating passes in a transaction. ROLLBACK on any throw so a
+  // partial write never persists.
+  await db.execute("BEGIN");
+  try {
+    // Step 0: park any trashed rows squatting on positive index slots into a
+    // high-negative range (-100000 - id, guaranteed unique). UNIQUE(project_id,
+    // image_index) would otherwise reject the compacted active set.
+    if (needsTrashPark) {
       await db.execute(
-        "UPDATE shots SET raw_prompt = ?, enhanced_prompt = ?, updated_at = ? WHERE id = ?",
-        [raw, enh, now(), s.id]
+        `UPDATE ref_images SET image_index = -100000 - id
+         WHERE project_id = ? AND deleted_at IS NOT NULL
+           AND image_index >= 0`,
+        [projectId]
       );
     }
-  }
 
-  // Project-level text (draft / first_pass / final_pass)
-  const projRows = await db.select<
-    {
-      draft_text: string | null;
-      first_pass_text: string | null;
-      final_pass_text: string | null;
-    }[]
-  >(
-    "SELECT draft_text, first_pass_text, final_pass_text FROM projects WHERE id = ?",
-    [projectId]
-  );
-  const p = projRows[0];
-  if (p) {
-    const newDraft = applyImageRemap(p.draft_text ?? "", remap);
-    const newFirst = applyImageRemap(p.first_pass_text ?? "", remap);
-    const newFinal = applyImageRemap(p.final_pass_text ?? "", remap);
-    if (
-      newDraft !== (p.draft_text ?? "") ||
-      newFirst !== (p.first_pass_text ?? "") ||
-      newFinal !== (p.final_pass_text ?? "")
-    ) {
-      await db.execute(
-        `UPDATE projects
-         SET draft_text = ?, first_pass_text = ?, final_pass_text = ?, updated_at = ?
-         WHERE id = ?`,
-        [newDraft, newFirst, newFinal, now(), projectId]
-      );
+    // Two-pass remap: first park each active row at -1000 - desired, then
+    // write the final positive index. Prevents intra-active swap collisions.
+    if (needsActiveRemap) {
+      for (const r of activeRows) {
+        const desired = remap.get(r.image_index) ?? r.image_index;
+        await db.execute(
+          "UPDATE ref_images SET image_index = ? WHERE id = ?",
+          [-1000 - desired, r.id]
+        );
+      }
+      for (const r of activeRows) {
+        const desired = remap.get(r.image_index) ?? r.image_index;
+        await db.execute(
+          "UPDATE ref_images SET image_index = ? WHERE id = ?",
+          [desired, r.id]
+        );
+      }
     }
-  }
 
-  // Prompt segment entry text (one entry owns Stage 1/2/3 text together)
-  const entries = await db.select<
-    {
-      id: number;
-      draft_text: string | null;
-      first_pass_text: string | null;
-      final_pass_text: string | null;
-    }[]
-  >(
-    "SELECT id, draft_text, first_pass_text, final_pass_text FROM prompt_entries WHERE project_id = ?",
-    [projectId]
-  );
-  for (const entry of entries) {
-    const newDraft = applyImageRemap(entry.draft_text ?? "", remap);
-    const newFirst = applyImageRemap(entry.first_pass_text ?? "", remap);
-    const newFinal = applyImageRemap(entry.final_pass_text ?? "", remap);
-    if (
-      newDraft !== (entry.draft_text ?? "") ||
-      newFirst !== (entry.first_pass_text ?? "") ||
-      newFinal !== (entry.final_pass_text ?? "")
-    ) {
-      await db.execute(
-        `UPDATE prompt_entries
-         SET draft_text = ?, first_pass_text = ?, final_pass_text = ?, updated_at = ?
-         WHERE id = ?`,
-        [newDraft, newFirst, newFinal, now(), entry.id]
+    // Text rewrites only run when there's a remap; otherwise nothing in user
+    // prose needs to change.
+    if (remap.size > 0) {
+      const shots = await db.select<
+        { id: number; raw_prompt: string; enhanced_prompt: string }[]
+      >(
+        "SELECT id, raw_prompt, enhanced_prompt FROM shots WHERE project_id = ?",
+        [projectId]
       );
+      for (const s of shots) {
+        const raw = applyImageRemap(s.raw_prompt ?? "", remap);
+        const enh = applyImageRemap(s.enhanced_prompt ?? "", remap);
+        if (raw !== (s.raw_prompt ?? "") || enh !== (s.enhanced_prompt ?? "")) {
+          await db.execute(
+            "UPDATE shots SET raw_prompt = ?, enhanced_prompt = ?, updated_at = ? WHERE id = ?",
+            [raw, enh, now(), s.id]
+          );
+        }
+      }
+
+      const projRows = await db.select<
+        {
+          draft_text: string | null;
+          first_pass_text: string | null;
+          final_pass_text: string | null;
+        }[]
+      >(
+        "SELECT draft_text, first_pass_text, final_pass_text FROM projects WHERE id = ?",
+        [projectId]
+      );
+      const p = projRows[0];
+      if (p) {
+        const newDraft = applyImageRemap(p.draft_text ?? "", remap);
+        const newFirst = applyImageRemap(p.first_pass_text ?? "", remap);
+        const newFinal = applyImageRemap(p.final_pass_text ?? "", remap);
+        if (
+          newDraft !== (p.draft_text ?? "") ||
+          newFirst !== (p.first_pass_text ?? "") ||
+          newFinal !== (p.final_pass_text ?? "")
+        ) {
+          await db.execute(
+            `UPDATE projects
+             SET draft_text = ?, first_pass_text = ?, final_pass_text = ?, updated_at = ?
+             WHERE id = ?`,
+            [newDraft, newFirst, newFinal, now(), projectId]
+          );
+        }
+      }
+
+      const entries = await db.select<
+        {
+          id: number;
+          draft_text: string | null;
+          first_pass_text: string | null;
+          final_pass_text: string | null;
+        }[]
+      >(
+        "SELECT id, draft_text, first_pass_text, final_pass_text FROM prompt_entries WHERE project_id = ?",
+        [projectId]
+      );
+      for (const entry of entries) {
+        const newDraft = applyImageRemap(entry.draft_text ?? "", remap);
+        const newFirst = applyImageRemap(entry.first_pass_text ?? "", remap);
+        const newFinal = applyImageRemap(entry.final_pass_text ?? "", remap);
+        if (
+          newDraft !== (entry.draft_text ?? "") ||
+          newFirst !== (entry.first_pass_text ?? "") ||
+          newFinal !== (entry.final_pass_text ?? "")
+        ) {
+          await db.execute(
+            `UPDATE prompt_entries
+             SET draft_text = ?, first_pass_text = ?, final_pass_text = ?, updated_at = ?
+             WHERE id = ?`,
+            [newDraft, newFirst, newFinal, now(), entry.id]
+          );
+        }
+      }
     }
+
+    await db.execute("COMMIT");
+  } catch (e) {
+    try {
+      await db.execute("ROLLBACK");
+    } catch {
+      // ROLLBACK may fail if BEGIN was already auto-finalized; swallow so
+      // the original error still surfaces.
+    }
+    throw e;
   }
 }
 
