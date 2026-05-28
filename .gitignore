@@ -81,3 +81,7 @@ grill-report-*.md
 .claude/notes.local.md
 .claude/nlpm-history.json
 docs/.private/
+
+# ─── Per-machine generated config (run scripts/setup.sh to create) ──
+# Track .template, gitignore the generated one
+src-tauri/capabilities/default.json

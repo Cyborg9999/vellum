@@ -33,37 +33,33 @@ claude --version
 
 `src-tauri/capabilities/default.json` 给 Tauri shell sandbox 列出**允许执行的 binary 绝对路径**。这些路径写死了作者机器的位置，你需要改成自己的。
 
-打开 [src-tauri/capabilities/default.json](src-tauri/capabilities/default.json)，找到 `shell:allow-execute` 块：
+**跑一遍 `scripts/setup.sh`，它会自动 `which` 出三个 binary 的实际路径，
+渲染 `src-tauri/capabilities/default.json.template` 生成你本地能跑的
+`src-tauri/capabilities/default.json`**（这个文件是 gitignored，每人本地一份）：
 
-```json
-{
-  "identifier": "shell:allow-execute",
-  "allow": [
-    { "name": "claude",   "cmd": "/Users/chengyue/.local/bin/claude",   "args": true, "sidecar": false },
-    { "name": "codex",    "cmd": "/opt/homebrew/bin/codex",             "args": true, "sidecar": false },
-    { "name": "dreamina", "cmd": "/Users/chengyue/.local/bin/dreamina", "args": true, "sidecar": false }
-  ]
-}
+```bash
+./scripts/setup.sh
 ```
 
-把每个 `cmd` 改成你机器上 `which` 出来的实际路径。常见位置：
+setup.sh 优先查这些位置（按顺序）：
+`$HOME/.local/bin/<name>` → `/opt/homebrew/bin/<name>` →
+`/usr/local/bin/<name>` → `/usr/bin/<name>` → `which <name>` fallback。
 
-| 你的环境 | 典型路径 |
-|---|---|
-| Homebrew (Apple Silicon) | `/opt/homebrew/bin/<name>` |
-| Homebrew (Intel) | `/usr/local/bin/<name>` |
-| 用户级安装 | `$HOME/.local/bin/<name>` → 写绝对路径如 `/Users/<you>/.local/bin/<name>` |
-| nvm 全局 | `$HOME/.nvm/versions/node/<v>/bin/<name>` |
+如果你的 binary 在别处（比如 nvm 全局），setup.sh 会留 `__XXX_PATH__` 占位符；
+手工编辑 `src-tauri/capabilities/default.json` 改成绝对路径，或者把 binary 软链
+到 `/opt/homebrew/bin/` 再重跑 setup.sh。
 
-> Tauri 2 capabilities **不支持** `$HOME` / `~` 占位符在 `shell:allow-execute.cmd`，必须写绝对路径。
+> Tauri 2 capabilities **不支持** `$HOME` / `~` 占位符在 `shell:allow-execute.cmd`，
+> 必须写绝对路径——这就是为什么要 setup.sh 而不是一份共享 default.json。
 
 ## 4. 安装与启动
 
 ```bash
 git clone https://github.com/Cyborg9999/vellum.git
 cd vellum
+./scripts/setup.sh           # 生成本地 capabilities/default.json
 npm install
-npm run tauri dev          # 开发模式，端口 1420，热重载
+npm run tauri dev            # 开发模式，端口 1420，热重载
 ```
 
 第一次启动会跑 SQLite migration 001–006，在 console 应该看到 `applied migration 6 (add_submit_id_column)`。

@@ -43,19 +43,19 @@
       "allow": [
         {
           "name": "claude",
-          "cmd": "/Users/chengyue/.local/bin/claude",
+          "cmd": "__CLAUDE_PATH__",
           "args": true,
           "sidecar": false
         },
         {
           "name": "codex",
-          "cmd": "/opt/homebrew/bin/codex",
+          "cmd": "__CODEX_PATH__",
           "args": true,
           "sidecar": false
         },
         {
           "name": "dreamina",
-          "cmd": "/Users/chengyue/.local/bin/dreamina",
+          "cmd": "__DREAMINA_PATH__",
           "args": true,
           "sidecar": false
         }
