@@ -85,4 +85,8 @@ export interface Submission {
   error: string | null;
   started_at: number | null;
   completed_at: number | null;
+  /** dreamina task id, added in migration 006. Null for legacy rows where
+   * the id was encoded inside cli_command — getSubmitIdFromRow falls back
+   * to that pattern. */
+  submit_id: string | null;
 }

@@ -676,24 +676,20 @@ export async function createSubmission(input: {
   project_id: number;
   shot_id: number;
   cli_command: string;
-  submit_id: string; // dreamina's task id — stored in error column repurposed? No, see below.
+  submit_id: string;
   status?: SubmissionStatus;
 }): Promise<Submission> {
   const db = await getDb();
-  // We store the dreamina submit_id in `error` column? No — use a dedicated
-  // approach: store the cli_command which includes args, and stash submit_id
-  // in video_path until success (we'll overwrite with the real video_path).
-  // Cleaner: append "\nsubmit_id=<id>" to cli_command for now.
   const t = Math.floor(Date.now() / 1000);
-  const cliWithId = `${input.cli_command}\n# submit_id=${input.submit_id}`;
   const result = await db.execute(
     `INSERT INTO submissions
-       (project_id, shot_id, cli_command, status, started_at)
-     VALUES (?, ?, ?, ?, ?)`,
+       (project_id, shot_id, cli_command, submit_id, status, started_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       input.project_id,
       input.shot_id,
-      cliWithId,
+      input.cli_command,
+      input.submit_id,
       input.status ?? "queued",
       t,
     ]
@@ -739,10 +735,13 @@ export async function deleteSubmission(id: number): Promise<void> {
 }
 
 /**
- * Extract the dreamina submit_id we stashed in cli_command at creation time.
- * Returns null if not found (legacy rows or hand-tampered data).
+ * Resolve the dreamina submit_id for a submission row. New rows (migration
+ * 006+) store it in the dedicated `submit_id` column. Legacy rows had it
+ * appended to `cli_command` as a "# submit_id=<id>" comment — we fall back
+ * to scanning for that pattern so old submissions still poll correctly.
  */
 export function getSubmitIdFromRow(row: Submission): string | null {
+  if (row.submit_id) return row.submit_id;
   const m = row.cli_command.match(/# submit_id=([^\s\n]+)/);
   return m?.[1] ?? null;
 }

@@ -39,6 +39,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_rename_prompt_entries.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "add_submit_id_column",
+            sql: include_str!("../migrations/006_submit_id_column.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

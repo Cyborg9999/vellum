@@ -171,35 +171,63 @@ export async function queryResult(submit_id: string): Promise<DreaminaQueryResul
 
 /**
  * Map dreamina's various status strings to our normalized SubmissionStatus.
- * Be permissive — dreamina docs don't enumerate exhaustively.
+ * Allowlist-based (grill H4): substring matching previously coerced any
+ * "*ing" / "*fail*" string into running / failed, which corrupted UI for
+ * statuses like "missing", "validation_failed_retrying", "limit_exceeded".
+ *
+ * Unknown strings stay "queued" so the poll loop keeps checking instead of
+ * silently flipping a paid job to a terminal state.
  */
 export function normalizeDreaminaStatus(
   s: string
 ): "queued" | "running" | "success" | "failed" {
-  const low = s.toLowerCase();
-  if (low.includes("success") || low === "done" || low === "completed")
-    return "success";
-  if (low.includes("fail") || low.includes("error")) return "failed";
-  if (low.includes("run") || low.includes("processing") || low.includes("ing"))
-    return "running";
-  return "queued";
+  const map: Record<string, "queued" | "running" | "success" | "failed"> = {
+    queued: "queued",
+    pending: "queued",
+    waiting: "queued",
+    submitted: "queued",
+    not_start: "queued",
+    in_queue: "queued",
+    accepted: "queued",
+    running: "running",
+    processing: "running",
+    in_progress: "running",
+    generating: "running",
+    success: "success",
+    completed: "success",
+    done: "success",
+    finished: "success",
+    failed: "failed",
+    error: "failed",
+    failure: "failed",
+    canceled: "failed",
+    cancelled: "failed",
+    timeout: "failed",
+    expired: "failed",
+    rejected: "failed",
+  };
+  return map[s.toLowerCase().trim()] ?? "queued";
 }
 
+/**
+ * Pull dreamina's submit_id out of CLI stdout. Strict order: parsed JSON,
+ * then scoped regex looking for a labeled key. We deliberately do NOT fall
+ * back to a bare UUID search (grill H3) — a stack-trace ID or request_id
+ * elsewhere in stdout could otherwise be persisted as the submit_id and
+ * orphan the actual paid job.
+ */
 function extractSubmitId(stdout: string): string | null {
-  // dreamina returns JSON by default
   try {
     const parsed = JSON.parse(stdout);
     if (typeof parsed.submit_id === "string") return parsed.submit_id;
     if (typeof parsed.task_id === "string") return parsed.task_id;
     if (typeof parsed.id === "string") return parsed.id;
   } catch {
-    /* fall through */
+    /* JSON parse failed; fall through to scoped regex */
   }
-  // fallback: regex find a uuid-shaped value next to submit_id / task_id
   const m =
     stdout.match(/"submit_id"\s*:\s*"([^"]+)"/) ||
-    stdout.match(/"task_id"\s*:\s*"([^"]+)"/) ||
-    stdout.match(/submit_id[=\s:]+([a-f0-9-]{20,})/i);
+    stdout.match(/"task_id"\s*:\s*"([^"]+)"/);
   return m?.[1] ?? null;
 }
 
