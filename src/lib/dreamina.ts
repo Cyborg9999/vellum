@@ -226,7 +226,7 @@ export function normalizeDreaminaStatus(
  * elsewhere in stdout could otherwise be persisted as the submit_id and
  * orphan the actual paid job.
  */
-function extractSubmitId(stdout: string): string | null {
+export function extractSubmitId(stdout: string): string | null {
   try {
     const parsed = JSON.parse(stdout);
     if (typeof parsed.submit_id === "string") return parsed.submit_id;
