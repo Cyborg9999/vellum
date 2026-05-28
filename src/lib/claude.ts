@@ -2,6 +2,7 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { Command } from "@tauri-apps/plugin-shell";
 import { getSetting } from "./db";
 import { VELLUM_DIRECTOR_WORKFLOW } from "./directorRules";
+import { runTracked } from "./subprocess";
 import type { RefImage } from "./types";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -116,7 +117,10 @@ async function runCodexExec(
       PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     },
   });
-  const result = await withTimeout(cmd.execute(), CLI_TIMEOUT_MS, "codex exec");
+  const result = await runTracked(cmd, {
+    timeoutMs: CLI_TIMEOUT_MS,
+    label: "codex exec",
+  });
 
   if (result.code !== 0) {
     throw new Error(
@@ -383,7 +387,10 @@ ${userText}`;
     fullPrompt,
   ]);
 
-  const result = await withTimeout(cmd.execute(), CLI_TIMEOUT_MS, "Claude CLI");
+  const result = await runTracked(cmd, {
+    timeoutMs: CLI_TIMEOUT_MS,
+    label: "Claude CLI",
+  });
 
   if (result.code !== 0) {
     throw new Error(
@@ -1443,30 +1450,6 @@ export async function optimizeDraftToFirstPass(
  * but unblocks the UI so the user can retry / cancel. Defends against grill
  * H2: CLI subprocess wrappers have no timeout / no cancel.
  */
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(
-      () =>
-        reject(
-          new Error(
-            `${label} 超时 (${Math.floor(ms / 1000)}s) — 子进程可能挂死。可重试或换 auth mode。`
-          )
-        ),
-      ms
-    );
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      }
-    );
-  });
-}
-
 const CLI_TIMEOUT_MS = 180_000; // 3 min hard cap for Claude/Codex subprocess
 const FETCH_TIMEOUT_MS = 90_000; // 90s hard cap for Anthropic/OpenAI fetch
 

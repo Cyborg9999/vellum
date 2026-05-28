@@ -9,6 +9,10 @@
 // Status polling: query_result --submit_id=<id>
 
 import { Command } from "@tauri-apps/plugin-shell";
+import { runTracked } from "./subprocess";
+
+const SUBMIT_TIMEOUT_MS = 180_000; // 3 min — dreamina submit is async (poll=0) but TLS handshake / queueing can stall
+const QUERY_TIMEOUT_MS = 60_000;   // 1 min — query_result is a single API call
 
 export type DreaminaModel =
   | "seedance2.0"
@@ -76,10 +80,13 @@ export async function submitMultimodal2Video(
   args.push("--video_resolution", resolution);
   args.push("--poll", "0");
 
-  console.log("[dreamina] cmd:", "dreamina", args.join(" "));
+  console.log("[dreamina] cmd:", "dreamina", redactArgs(args));
 
   const cmd = Command.create("dreamina", args);
-  const output = await cmd.execute();
+  const output = await runTracked(cmd, {
+    timeoutMs: SUBMIT_TIMEOUT_MS,
+    label: "dreamina multimodal2video",
+  });
 
   if (output.code !== 0) {
     throw new Error(
@@ -118,7 +125,10 @@ export async function queryResult(submit_id: string): Promise<DreaminaQueryResul
   console.log("[dreamina] cmd:", "dreamina", args.join(" "));
 
   const cmd = Command.create("dreamina", args);
-  const output = await cmd.execute();
+  const output = await runTracked(cmd, {
+    timeoutMs: QUERY_TIMEOUT_MS,
+    label: "dreamina query_result",
+  });
 
   if (output.code !== 0) {
     throw new Error(
@@ -235,4 +245,23 @@ function quoteArg(a: string): string {
   // Light shell-escape only for display purposes (CLI command string saved to DB)
   if (/^[a-zA-Z0-9_./@:=+-]+$/.test(a)) return a;
   return `"${a.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Truncate `--prompt` body in console logs so we don't leak full prompt
+ * text (potentially user-pasted PII/tokens) to devtools / terminal (grill M6).
+ */
+function redactArgs(args: string[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--prompt" && i + 1 < args.length) {
+      const v = args[i + 1];
+      out.push(a, v.length > 80 ? v.slice(0, 80) + "…[truncated]" : v);
+      i++;
+    } else {
+      out.push(a);
+    }
+  }
+  return out.join(" ");
 }
