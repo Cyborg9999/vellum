@@ -117,3 +117,27 @@ cargo test --manifest-path src-tauri/Cargo.toml   # Rust 端
 - **fs:scope 较宽**（含 `/Volumes/**` 和 `$HOME/Projects/**` ，grill H6 已识别） — Renderer XSS 风险（小）
 - **没有 Tauri updater**（grill 延后项） — 你需要手动 git pull + rebuild
 - **没有签名**（无 Apple Developer ID） — 首次运行 Gatekeeper 会拦，右键 → 打开 一次绕过
+
+## Optional: safegit wrapper
+
+`scripts/safegit.sh` 拦截脏工作区下的破坏性 git 命令（`reset --hard`、`checkout -- / .`、
+`restore` 工作区、`clean -f*`、`stash drop|clear`、`branch -D`），需要时加 `--i-mean-it` 跳过。
+2026-05-29 那次 4 个文件被 `reset --hard` 冲掉之后才装的。
+
+Add one line to ~/.zshrc (or run it per-shell when inside the repo):
+
+```bash
+alias git="$HOME/Projects/vellum/scripts/safegit.sh"
+```
+
+Then `chmod +x ~/Projects/vellum/scripts/safegit.sh` once.
+
+Optional (auto-scope to project only, requires direnv):
+
+```bash
+echo 'alias git="$PWD/scripts/safegit.sh"' > ~/Projects/vellum/.envrc && direnv allow
+```
+
+**Honest limits**：alias 只在 shell 里有效，VSCode git 面板/JetBrains/Tower 这类直接调
+`/usr/bin/git` 的工具绕得过去。submodule 自己的脏不会被检查。Git 没有原生 `pre-reset`
+hook，所以 `core.hooksPath` 顶替不了这个 wrapper。
