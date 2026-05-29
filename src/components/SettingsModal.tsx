@@ -9,6 +9,7 @@ import {
   KeyRound,
   Bot,
   Cpu,
+  Sparkles,
   Sun,
   Moon,
   Monitor,
@@ -46,10 +47,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const [openaiKey, setOpenaiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState("gpt-5");
   const [codexModel, setCodexModel] = useState("gpt-5.5");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
   const [theme, setTheme] = useState<ThemeMode>(getThemeMode);
   const [resolvedTheme, setResolvedTheme] = useState(getResolvedTheme);
   const [revealClaude, setRevealClaude] = useState(false);
   const [revealOpenai, setRevealOpenai] = useState(false);
+  const [revealGemini, setRevealGemini] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +69,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     void (async () => {
       try {
         const m = (await getSetting("claude_auth_mode")) as AuthMode | null;
-        if (m === "api" || m === "cli" || m === "openai" || m === "codex") {
+        if (
+          m === "api" ||
+          m === "cli" ||
+          m === "openai" ||
+          m === "codex" ||
+          m === "gemini"
+        ) {
           setMode(m);
         }
         const k = await getSetting("claude_api_key");
@@ -76,6 +86,10 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         if (om) setOpenaiModel(om);
         const cm = await getSetting("codex_model");
         if (cm) setCodexModel(cm);
+        const gk = await getSetting("gemini_api_key");
+        if (gk) setGeminiKey(gk);
+        const gm = await getSetting("gemini_model");
+        if (gm) setGeminiModel(gm);
       } catch (e) {
         console.error("[Settings] load failed:", e);
       }
@@ -98,6 +112,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       if (mode === "codex") {
         await setSetting("codex_model", codexModel.trim() || "gpt-5.5");
       }
+      if (mode === "gemini") {
+        await setSetting("gemini_api_key", geminiKey.trim());
+        await setSetting(
+          "gemini_model",
+          geminiModel.trim() || "gemini-2.5-flash"
+        );
+      }
       resetClaudeClient();
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -111,7 +132,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const saveDisabled =
     saving ||
     (mode === "api" && !apiKey.trim()) ||
-    (mode === "openai" && !openaiKey.trim());
+    (mode === "openai" && !openaiKey.trim()) ||
+    (mode === "gemini" && !geminiKey.trim());
 
   const resolvedThemeLabel =
     resolvedTheme === "dark"
@@ -220,6 +242,14 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 icon={<Cpu size={13} />}
                 label="Codex CLI"
                 hint="走你 ChatGPT 订阅 · 无额外 key · 原生支持图片"
+              />
+              <ModeOption
+                active={mode === "gemini"}
+                onClick={() => setMode("gemini")}
+                icon={<Sparkles size={13} />}
+                label="Gemini"
+                hint="Google AI Studio API · 免费 tier 够日常用"
+                className="col-span-2"
               />
             </div>
           </div>
@@ -351,6 +381,75 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
+          {mode === "gemini" && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
+                  Gemini API Key
+                </div>
+                <div className="relative">
+                  <input
+                    type={revealGemini ? "text" : "password"}
+                    value={geminiKey}
+                    onChange={(e) => {
+                      setGeminiKey(e.target.value);
+                      setSaved(false);
+                    }}
+                    placeholder="AIza..."
+                    className="w-full bg-vellum-bg border border-vellum-border rounded px-3 py-2 pr-10 text-vellum-text placeholder:text-vellum-dim text-sm font-mono focus:border-vellum-accent-border transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRevealGemini((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-vellum-faint hover:text-vellum-muted"
+                  >
+                    {revealGemini ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
+                  Get a free API key at{" "}
+                  <code className="text-vellum-accent">
+                    aistudio.google.com/apikey
+                  </code>
+                  。注意是 AI Studio key，不是 Vertex AI / GCP service
+                  account。
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
+                  Model
+                </div>
+                <select
+                  value={geminiModel}
+                  onChange={(e) => {
+                    setGeminiModel(e.target.value);
+                    setSaved(false);
+                  }}
+                  className="w-full bg-vellum-bg border border-vellum-border rounded px-3 py-2 text-vellum-text text-sm font-mono focus:border-vellum-accent-border transition"
+                >
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="gemini-3.1-flash-lite">
+                    gemini-3.1-flash-lite
+                  </option>
+                  <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+                  <option value="gemini-3-flash-preview">
+                    gemini-3-flash-preview
+                  </option>
+                </select>
+                <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
+                  默认 <code className="text-vellum-accent">gemini-2.5-flash</code>
+                  ，免费 tier 日常够用。如遇 429 切{" "}
+                  <code className="text-vellum-accent">gemini-3.1-flash-lite</code>
+                  。实时 quota 见{" "}
+                  <code className="text-vellum-accent">
+                    aistudio.google.com/rate-limit
+                  </code>
+                  。
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="border border-red-900/60 bg-red-950/20 text-red-300 rounded p-3 text-xs font-mono break-all">
               {error}
@@ -397,12 +496,14 @@ function ModeOption({
   icon,
   label,
   hint,
+  className,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
   hint: string;
+  className?: string;
 }) {
   return (
     <button
@@ -411,7 +512,8 @@ function ModeOption({
         "text-left p-3 rounded border transition",
         active
           ? "border-vellum-accent bg-vellum-accent-soft"
-          : "border-vellum-border bg-vellum-bg/40 hover:border-vellum-border-strong"
+          : "border-vellum-border bg-vellum-bg/40 hover:border-vellum-border-strong",
+        className
       )}
     >
       <div
