@@ -383,9 +383,15 @@ ${userText}`;
     "text",
     "--model",
     CLI_FAST_MODEL,
-    // --bare skips hooks, LSP, plugin sync, auto-memory, CLAUDE.md
-    // auto-discovery — cuts 10-30s of subprocess startup per call.
-    "--bare",
+    // Speedup combo (replaces --bare, which broke OAuth/keychain auth
+    // and 401-failed every call for subscription users without
+    // ANTHROPIC_API_KEY). These three flags skip MCP plugin servers,
+    // settings.json + hook scans, and session disk writes — approximating
+    // --bare's startup savings while PRESERVING OAuth/keychain auth.
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
     // `--` separator: any leading `-` in the user-controlled prompt would
     // otherwise be parsed as a CLI flag (e.g. `--mcp-config /tmp/evil`).
     // C3 hardening — prevents prompt-injection-to-CLI-flag escalation.
