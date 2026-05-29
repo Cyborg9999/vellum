@@ -560,6 +560,7 @@ export function ShotsView() {
           subtitle={`当前：${activeEntryTitle} · 最终提交`}
         >
           <FinalStageContent
+            draft={draft}
             finalPass={finalPass}
             setFinalPass={(v) => {
               setFinalPass(v);
@@ -1646,13 +1647,56 @@ function StageAction({
   );
 }
 
+/**
+ * Build a fallback "参考图绑定：图N=..." header for cases where Pass 2 silently
+ * dropped the binding section (happens with subprocess-mode LLMs that compress
+ * long system prompts — gpt-5.5 via Codex CLI is the usual culprit).
+ *
+ * Strategy: scan the draft for explicit (图N) references the user @-picked, and
+ * emit one entry per referenced ref image with the existing role + name. We
+ * don't try to invent visual descriptions — the user can edit afterwards. Goal
+ * is just to unblock Submit so dreamina sees the right image attachments.
+ *
+ * Returns "" when the draft has no (图N) refs (nothing safe to auto-bind).
+ */
+function buildBindingHeaderFromDraft(
+  draft: string,
+  refImages: import("@/lib/types").RefImage[]
+): string {
+  const roleLabel: Record<string, string> = {
+    character: "角色",
+    scene: "场景",
+    prop: "道具",
+  };
+  const seen: number[] = [];
+  const re = /\(图\s*(\d+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(draft)) !== null) {
+    const n = Number(m[1]);
+    if (!seen.includes(n)) seen.push(n);
+  }
+  const entries = seen
+    .map((n) => {
+      const img = refImages.find((r) => r.image_index === n);
+      if (!img) return null;
+      const role = roleLabel[img.role] || img.role;
+      const name = img.name ? `（${img.name}）` : "";
+      return `图${n}=${role}${name}`;
+    })
+    .filter((s): s is string => s !== null);
+  if (entries.length === 0) return "";
+  return `参考图绑定：${entries.join("；")}。`;
+}
+
 function FinalStageContent({
+  draft,
   finalPass,
   setFinalPass,
   refImages,
   activeEntryNumber,
   activeEntryTitle,
 }: {
+  draft: string;
   finalPass: string;
   setFinalPass: (v: string) => void;
   refImages: import("@/lib/types").RefImage[];
@@ -1691,13 +1735,38 @@ function FinalStageContent({
             .join("、")}，请先清理`
         );
       }
-      if (payload.orderedFiles.length === 0) {
-        throw new Error(
-          "没有检测到可提交的参考图。Final 里需要有“参考图绑定：图1=...”或 (图N) 引用。"
-        );
+
+      // Pass 2 sometimes drops the 参考图绑定 section (Codex CLI compression).
+      // Auto-rebuild from the draft's (图N) refs instead of forcing the user
+      // to click a button first — the draft is source of truth for which
+      // images they intended to use.
+      let submitFinal = finalPass;
+      let submitPayload = payload;
+      let submitFull = fullOutput;
+      if (submitPayload.orderedFiles.length === 0) {
+        const fallbackHeader = buildBindingHeaderFromDraft(draft, refImages);
+        if (!fallbackHeader) {
+          throw new Error(
+            "草稿和 Final 都没有 (图N) 引用。回 Stage 1 用 @ 选参考图后重新 Optimize → Finalize。"
+          );
+        }
+        submitFinal = `${fallbackHeader}\n\n${finalPass.trim()}`;
+        submitPayload = buildSubmitPayload(submitFinal, refImages);
+        const bodyAlreadyHasHeader = /参考图上传顺序/.test(submitPayload.body);
+        submitFull =
+          submitPayload.uploadOrderHeader && !bodyAlreadyHasHeader
+            ? `${submitPayload.uploadOrderHeader}\n\n${submitPayload.body}`
+            : submitPayload.body;
+        // Persist the rebuilt binding line so next submit/edit sees it too.
+        setFinalPass(submitFinal);
+        if (submitPayload.orderedFiles.length === 0) {
+          throw new Error(
+            "已尝试从草稿自动重建绑定段但仍未识别到参考图，可能 Library 里的图被删了。"
+          );
+        }
       }
 
-      const res = await submitMultimodal2Video(fullOutput, payload.orderedFiles, {
+      const res = await submitMultimodal2Video(submitFull, submitPayload.orderedFiles, {
         model_version: "seedance2.0_vip",
         duration,
         ratio,
@@ -1707,7 +1776,7 @@ function FinalStageContent({
       const shot = await ensureShot(project.id, activeEntryNumber);
       await updateShot(shot.id, {
         raw_prompt: project.draft_text ?? "",
-        enhanced_prompt: finalPass,
+        enhanced_prompt: submitFinal,
         status: "submitted",
         enhanced_at: Math.floor(Date.now() / 1000),
       });
@@ -1761,11 +1830,35 @@ function FinalStageContent({
           {payload.uploadOrderHeader}
         </div>
       )}
-      {!payload.uploadOrderHeader && finalPass.trim() && payload.orphanIndices.length === 0 && (
-        <div className="text-[11px] text-vellum-faint">
-          没有检测到 (图N) 引用 · 回上一阶段加图绑定再 Finalize 一次能拿到完整 header
-        </div>
-      )}
+      {!payload.uploadOrderHeader && finalPass.trim() && payload.orphanIndices.length === 0 && (() => {
+        // Pass 2 sometimes drops the 参考图绑定 section. handleSubmit now
+        // auto-rebuilds from draft on submit — this banner is just an FYI so
+        // the user knows what's about to happen (or that they need to add
+        // refs in Stage 1).
+        const fallbackHeader = buildBindingHeaderFromDraft(draft, refImages);
+        if (!fallbackHeader) {
+          return (
+            <div className="border border-red-900/60 bg-red-950/20 rounded p-3 text-[11px] text-red-300">
+              <div className="font-bold mb-1 flex items-center gap-1.5">
+                <AlertCircle size={13} /> 草稿和 Final 都没有 (图N) 引用
+              </div>
+              <div className="text-red-200/90">
+                回 Stage 1 用 @ 选参考图后重新 Optimize → Finalize。
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="border border-vellum-border bg-vellum-elevated/40 rounded p-3 text-[11px] text-vellum-faint space-y-1.5">
+            <div className="text-vellum-text">
+              Pass 2 这次没写参考图绑定段 · Submit 时将自动从草稿重建：
+            </div>
+            <div className="font-mono text-vellum-accent bg-vellum-bg/60 rounded px-2 py-1.5 whitespace-pre-wrap break-words">
+              {fallbackHeader}
+            </div>
+          </div>
+        );
+      })()}
 
       <RichTextarea
         value={finalPass}

@@ -416,14 +416,181 @@ export async function getPromptBackendLabel(): Promise<string> {
   return "Claude API";
 }
 
+// ─── Pass 0: rough draft → beat sheet (导演骨架，只解决导演问题) ──
+// 把"拆镜 / 定轴线 / 定机位 / 定 A B 位置 / 定动作向量"从 Pass 1 里剥离出来。
+// Pass 1 之前先让模型做导演调度，这样 Pass 1 只负责按骨架扩写细节，
+// 不再同时承担"拆镜 + 定参数 + 扩写"三件事。
+
+const PASS_0_BEAT_SHEET_SYSTEM = `你是专业级视频导演兼分镜师。用户给你一段笼统的故事/动作粗稿，可能只有一两句话。你的任务**不是写画面**，而是先做导演调度——把粗稿拆成几个连续镜头骨架，每个镜头骨架只解决导演问题，不写服化道、风格、光影、画面细节。
+
+${VELLUM_DIRECTOR_WORKFLOW}
+
+【输出严格遵守这种格式（机器要解析）】
+
+镜头1
+目的：建立空间 / 角色出手 / 目标反应 / 接触打击 / 重建规模 / 情绪特写 / 道具操作（七选一，只能写一个）
+机位：摄影机站在哪里。例如「站在两人侧面，画面左低机位」「站在 A 身后右肩」「贴近 B 正前方」「远处高位俯瞰」。必须是可演示的物理站位。
+A：A 的名字 / 画面位置（左前景/右前景/左中景/右中景/左后景/右后景/画面中央）/ 身体取景（全身入镜/腰部以上/胸口以上/肩部以上/头部特写/手部特写/背部肩胛/后脑勺与肩背 等）/ 朝向（正面/背影/侧面/45度侧面/过肩背影 等）
+B：B 的名字 / 画面位置 / 身体取景 / 朝向（如果只有一个主体，写「B：无」）
+距离：两人之间空间关系。例如「贴身接触」「一臂距离」「三到五米潮湿空地」「隔着雾气和管线」「远处虚化」「同一焦平面」「A 前景遮挡 B 后景」。如果只有一个主体，写场景到主体的空间关系。
+向量：动作运动方向。例如「A 向右压近 B，B 同时向左压近，二者沿同一水平轴线接近」「子弹从左前景斜切到右后景」「主角后脑勺占前景，向后景战场高速冲刺」。
+镜头运动：固定 / 缓慢推进 / 快速推进 / 推近 / 拉远 / 横移 / 跟拍 / 过肩跟拍 / 高速摇镜 / 环绕 / 上摇 / 下摇 / 一镜到底 之一。固定只允许第 1 镜头用一次。
+落幅：镜头最后停在谁的哪个身体部位或哪段空间关系。例如「定在二者将要相撞的那一刻」「停在 A 右手腕和连续喷焰的枪口上」「落幅在 B 胸甲被弹雨击打瞬间的金属反光」。
+图：本镜头用到的 (图N) 引用，例如「(图1)=主角；(图3)=场景」。如果粗稿没有 (图N)，写「图：无」。
+
+镜头2
+…
+
+【硬规则】
+
+1. **一镜一画面**：一个镜头编号只能描述一个连续画面。如果脸/手切换、正/背切换、远/近切换没有写明运镜连接（下摇/上摇/平摇/环绕/推进/拉远/跟焦/一镜到底/同一构图），必须拆成下一个镜头。
+
+2. **轴线互补**：双人对峙、攻击、追逐时，不能让两个对立主体在同一镜头里都写"正面"。允许同时正面的唯一三种情况：①两人并肩同向；②两人一起朝镜头冲来；③剧情明确两人同时转头看镜头。否则必须有一方写背影/侧面/45度侧面/过肩。
+
+3. **远距离攻击拆镜**：远距离开枪/射箭/能量发射/投掷武器默认拆成两个镜头——出手镜头（只拍攻击者）+ 反打承受镜头（单独拍目标）。同镜头同时写"出手"和"承受"必须明确前景/后景透视关系，否则必须拆。
+
+4. **可演示构图**：每个镜头你自己要能在脑中把两个演员摆出来。不能只写"A 在画面中央"、"B 在后景逼近"。必须写清画面左/右、前/中/后景层级、距离、谁遮挡谁、动作向量。
+
+5. **节奏**：用户大纲若提到 15 秒，输出 5-8 个镜头；10 秒输出 3-5 个；3 秒输出 1-2 个。不要为凑数量拆得太碎；每个镜头必须承担新的视觉任务。
+
+6. **图绑定**：用户粗稿里出现 (图N)，必须在用到该角色/场景/道具的每个镜头骨架的「图」字段里保留这个标记。不要在骨架里写图片的视觉细节，只保留 (图N) 引用。
+
+7. **目的不重叠**：一个镜头不能同时承担两个抢焦点的主目的。例如不能"少年拔枪开火（角色出手）"和"昆虫武士承受弹雨（目标反应）"塞进同一镜头骨架，必须拆。
+
+8. **机位不抽象**：「机位」字段必须能让真人摄影师按文字摆出摄影机三脚架。"站在两人侧面，画面左低机位" 合格；"动态镜头" 不合格。
+
+【输出前自检】
+
+输出前必须逐镜头检查每一项，任一项缺失或写得抽象就重写该镜头：
+- 目的字段是七选一中的一个，且只有一个
+- 机位字段能让人摆出摄影机三脚架位置
+- A 字段包含名字 / 位置 / 身体取景 / 朝向四件事
+- B 字段同上，或显式写「B：无」
+- 距离字段是可触摸的空间描述
+- 向量字段写清谁从哪到哪
+- 镜头运动是清单里的词
+- 落幅字段是具体身体部位或空间关系
+- 图字段保留了粗稿里的 (图N) 标记或显式写「无」
+- 一个镜头里两个对立主体没有同时写"正面"
+- 远距离开枪/射击/能量发射拆成两个镜头或写清前后景透视
+
+只输出镜头骨架。不要前言、不要解释、不要风格、不要服化道、不要画面细节、不要 markdown 标题、不要 emoji。`;
+
+// ─── Pass C: combined Pass 0 + Pass 1 in one LLM call ──────────────
+// Subprocess auth modes (Codex CLI / Claude CLI) pay 10-30s of startup PER
+// call. Doing 2-4 separate calls (生骨架 → 修骨架 → 扩写 → 修扩写) takes
+// 120-240s and frustrates the user. Combined mode asks the model to emit
+// both stages in a single response with explicit delimiters, then we split.
+//
+// Quality trade-off: no retry path. If the model produces a malformed beat
+// sheet or first pass, we log to console.warn but return what we have. API
+// modes still use the two-stage + retry path (cheap, fast) — only subprocess
+// modes take this shortcut.
+
+const COMBINED_BEAT_TAG = "<<<BEAT_SHEET>>>";
+const COMBINED_FIRST_TAG = "<<<FIRST_PASS>>>";
+
+const PASS_COMBINED_SYSTEM = `你是专业级视频导演兼分镜师。你的任务是把用户的笼统粗稿**一次性**优化成可拍摄的高精度分镜。为了输出可靠，**必须严格按下面两段格式输出，每段都用专属分隔符开头**。
+
+${VELLUM_DIRECTOR_WORKFLOW}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+强制输出结构（不可省略、不可改顺序）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${COMBINED_BEAT_TAG}
+[这里放导演骨架，每个镜头按下面九字段格式]
+
+${COMBINED_FIRST_TAG}
+[这里放成片分镜，每个镜头按下面 flowing prose 格式]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+第一段（${COMBINED_BEAT_TAG} 后）：导演骨架
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+骨架只解决导演问题，不写画面、不写服化道、不写风格。每个镜头九个字段，每行一个：
+
+镜头1
+目的：建立空间 / 角色出手 / 目标反应 / 接触打击 / 重建规模 / 情绪特写 / 道具操作（七选一，只能写一个）
+机位：摄影机站在哪里。例如「站在两人侧面，画面左低机位」「站在 A 身后右肩」「贴近 B 正前方」「远处高位俯瞰」。必须是可演示的物理站位。
+A：名字 / 画面位置（左前景/右前景/左中景/右中景/左后景/右后景/画面中央）/ 身体取景（全身入镜/腰部以上/胸口以上/肩部以上/头部特写/手部特写/背部肩胛/后脑勺与肩背 等）/ 朝向（正面/背影/侧面/45度侧面/过肩背影 等）
+B：同 A 格式。如果只有一个主体，写「B：无」。
+距离：两人之间空间关系（贴身接触 / 一臂距离 / 三到五米潮湿空地 / 远处虚化 / 同一焦平面 / A 前景遮挡 B 后景 等）
+向量：动作运动方向（A 向右压近 B / 子弹从左前景斜切到右后景 / 主角后脑勺占前景向后景战场高速冲刺 等）
+镜头运动：固定 / 缓慢推进 / 快速推进 / 推近 / 拉远 / 横移 / 跟拍 / 过肩跟拍 / 高速摇镜 / 环绕 / 上摇 / 下摇 / 一镜到底 之一。固定只允许第 1 镜头用一次。
+落幅：镜头最后停在谁的哪个身体部位或哪段空间关系
+图：本镜头用到的 (图N) 引用。粗稿没有就写「图：无」。
+
+镜头2
+...
+
+骨架硬规则：
+- **一镜一画面**：脸/手/正/背/远近切换没有运镜连接（下摇/上摇/平摇/环绕/推进/拉远/跟焦/同框）就必须拆镜。
+- **轴线互补**：双人对峙不能同时正面看镜头，必有一方背影/侧面/45度侧面/过肩。例外：两人并肩同向、一起朝镜头冲、同时转头看镜头。
+- **远距离攻击拆镜**：开枪/射箭/能量发射/投掷武器默认拆出手镜头 + 反打承受镜头。同镜头必须明确前/后景透视。
+- **目的不重叠**：一个镜头只承担一个主目的。
+- **机位不抽象**：能让真人摄影师按文字摆出三脚架。
+- **节奏**：15秒 = 5-8 镜，10秒 = 3-5 镜，3秒 = 1-2 镜。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+第二段（${COMBINED_FIRST_TAG} 后）：成片分镜
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+按上一段骨架扩写成片，每个镜头一整段 flowing prose（160-320 字）。**必须严格按骨架的目的/机位/A B 位置/身体取景/朝向/距离/向量/落幅扩写，不许改骨架决定**。骨架是骨头，这一段只负责长肉：服化道、空间层次、动作阶段、场景重渲染、物理反馈。
+
+格式硬规则：
+1. **第一句必须同时显式包含 5 参数**：景别 + 身体取景 + 运镜 + 镜头角度 + 主体面对镜头方向。格式：「镜头N，[景别][身体取景][运镜][角度][方向]镜头，...」
+2. 景别词：极远景/远景/全景/中景/中近景/近景/特写/大特写/微距特写
+3. 身体取景词：全身入镜/腰部以上/胸口以上/肩部以上/头部特写/手部特写/背部肩胛位置/后脑勺与肩背 等
+4. 运镜词：固定/缓慢推进/快速推进/推近/拉远/横移/跟拍/过肩跟拍/高速摇镜/环绕/上摇/下摇/一镜到底 等
+5. 镜头角度词：平视/仰拍/俯拍/广角仰拍/广角俯拍/鸟瞰/上帝视角/荷兰式倾斜/过肩镜头 等
+6. 方向词：正面/背影/侧面/45度侧面/正侧面对峙/过肩背影 等
+7. 每镜必须写清前/中/后景里分别有什么、谁从哪里到哪里、最终停在什么视觉重点上
+8. 保留并强化 (图N) 引用；场景图按本镜头机位重新渲染，不当静态贴片
+9. 镜头编号用「镜头1，」格式（中文逗号）
+10. 不要风格化词（3D / Mielgo / 胡金铨等，留给最终强化阶段）
+11. flowing prose 散文体，禁用 slot 标签、禁用 markdown 标题、禁用 emoji
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+输出前自检（不输出清单）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- 是否两段都有，分隔符 ${COMBINED_BEAT_TAG} 和 ${COMBINED_FIRST_TAG} 都正确写出？
+- 骨架每镜九字段是否齐全？
+- 成片每镜第一句是否含齐 5 参数？
+- 双人对峙镜头是否轴线互补（不是两个都正面）？
+- 远距离攻击镜头是否拆成出手 + 反打？
+- 是否保留了所有 (图N) 引用？
+- 镜头数量是否匹配节奏（15 秒 → 5-8 镜）？
+
+只输出两段内容，不要前言、不要后语、不要解释、不要 markdown 标题。`;
+
 // ─── Pass 1: rough draft → first pass (structured + detailed shots) ─
 // 基于 docs/methodology.md / 用户校准文档「分镜初稿的大体规则和校对」
+// 收到 Pass 0 骨架后，Pass 1 只负责"按骨架扩写细节"，不再承担拆镜责任。
 
 const PASS_1_SYSTEM = `你是专业级视频分镜提示词工程师。用户给你一段对动作/场景的自然语言粗稿，你的任务是**拆分并细化**为符合即梦视频生成模型理解的高精度分镜。
 
 ${VELLUM_DIRECTOR_WORKFLOW}
 
 你的身份不是普通润色助手，而是**导演**：用户只提供故事大纲，你负责把大纲导演成可拍摄、可生成、可执行的镜头描述。你要主动补足摄影机位置、镜头运动、人物朝向、前中后景调度、动作节奏和真实物理细节。
+
+【关于「导演骨架」段 — 最高优先级】
+
+如果用户消息里包含「【导演骨架（必须严格遵守）】」段，那是上一步导演阶段已经做完的拆镜调度。每个镜头骨架已经明确了目的 / 机位 / A 与 B 的画面位置和身体取景和朝向 / 距离 / 向量 / 镜头运动 / 落幅 / 图。你**必须严格按骨架扩写**，不允许：
+- 改变镜头数量（骨架几镜你就输出几镜）
+- 改变镜头目的（骨架写"建立空间"你不许改成"接触打击"）
+- 改变摄影机机位（骨架写"站在两人侧面画面左低机位"你不许改成"过肩跟拍"）
+- 改变 A/B 的画面位置或身体取景或朝向
+- 改变镜头运动（骨架写"缓慢推进"你不许改成"快速推进"）
+- 改变落幅停在哪个身体部位
+
+你能改的只有"按骨架扩写细节"：把骨架里抽象的「主角」「场景」展开成可触摸的服化道、空间层次、动作阶段、场景重渲染、动作向量上的物理反馈，并把骨架的机位/朝向/落幅写成 flowing prose。骨架字段是骨头，你只负责长肉。
+
+如果骨架某个字段你判断有逻辑错误（例如双方都正面看镜头），不要擅自改骨架，**保留骨架原样扩写**，机械校验会捕获并修复。
+
+如果用户消息里**没有**「导演骨架」段，你才需要自己同时承担拆镜 + 扩写——按下面全部规则做。
+
 
 判定标准：同一段描述提交视频模型三次，三次生成画面差异 >20% 就是不合格，<10% 才算合格。你的输出目标是把差异压到 <10%。
 
@@ -957,20 +1124,404 @@ function buildRefImageIndexMap(refImages: RefImage[]): string {
     .join("\n");
 }
 
-function buildDraftOptimizeInput(draft: string, refImages: RefImage[]): string {
-  if (refImages.length === 0) return draft;
-
+function buildDraftOptimizeInput(
+  draft: string,
+  refImages: RefImage[],
+  beatSheet?: string
+): string {
+  const hasRefs = refImages.length > 0;
   const hasSceneRef = refImages.some((img) => img.role === "scene");
   const sceneLine = hasSceneRef
     ? `\n【背景/场景特别要求】\n粗稿里已经选择了背景/场景图。第一次优化不需要写最终版那种超细材质，但必须在每个相关镜头中保留背景/场景(图N)，并用一句话说明它在前景/中景/后景/背景中的存在方式、空间纵深、光源方向或背景运动。人物近景也不能完全丢背景。`
     : "";
 
-  return `【初稿中通过 @ 选择的参考图】
+  const refBlock = hasRefs
+    ? `【初稿中通过 @ 选择的参考图】
+${buildRefImageIndexMap(refImages)}
+${sceneLine}
+
+`
+    : "";
+
+  const beatBlock = beatSheet?.trim()
+    ? `【导演骨架（必须严格遵守）】
+${beatSheet.trim()}
+
+`
+    : "";
+
+  return `${refBlock}${beatBlock}【粗稿】
+${draft}`;
+}
+
+// ─── Beat Sheet (Pass 0) parsing + validation ──────────────────────
+
+const BEAT_PURPOSES = [
+  "建立空间",
+  "角色出手",
+  "目标反应",
+  "接触打击",
+  "重建规模",
+  "情绪特写",
+  "道具操作",
+];
+
+const BEAT_CAMERA_MOTIONS = [
+  "固定",
+  "缓慢推进",
+  "快速推进",
+  "推近",
+  "拉远",
+  "横移",
+  "跟拍",
+  "过肩跟拍",
+  "高速摇镜",
+  "环绕",
+  "上摇",
+  "下摇",
+  "一镜到底",
+  "撞击式推进",
+  "爆发式拉远",
+  "手持",
+];
+
+interface BeatSheetShot {
+  /** 1-indexed shot number, parsed from "镜头N" header line. */
+  index: number;
+  /** Original full text block (header + fields). */
+  raw: string;
+  fields: {
+    目的?: string;
+    机位?: string;
+    A?: string;
+    B?: string;
+    距离?: string;
+    向量?: string;
+    镜头运动?: string;
+    落幅?: string;
+    图?: string;
+  };
+}
+
+export function parseBeatSheet(text: string): BeatSheetShot[] {
+  const lines = text.split("\n");
+  const shots: BeatSheetShot[] = [];
+  let current: BeatSheetShot | null = null;
+
+  const headerRe = /^镜头\s*(\d+)\s*$/;
+  // Field line allows `字段：值` or `字段:值`, both Chinese and ASCII colons.
+  const fieldRe = /^(目的|机位|A|B|距离|向量|镜头运动|落幅|图)\s*[:：]\s*(.*)$/;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const h = line.match(headerRe);
+    if (h) {
+      if (current) shots.push(current);
+      current = { index: Number(h[1]), raw: line, fields: {} };
+      continue;
+    }
+    if (!current) continue;
+    const f = line.match(fieldRe);
+    if (f) {
+      const key = f[1] as keyof BeatSheetShot["fields"];
+      const value = f[2].trim();
+      current.fields[key] = value;
+      current.raw += "\n" + line;
+    }
+  }
+  if (current) shots.push(current);
+  return shots;
+}
+
+interface BeatSheetValidationOptions {
+  expectedImageIndices?: number[];
+}
+
+interface BeatSheetValidationResult {
+  issues: string[];
+  /** 1-indexed shot numbers that have any issue — used for surgical repair. */
+  badShotIndices: number[];
+}
+
+export function validateBeatSheet(
+  text: string,
+  options: BeatSheetValidationOptions = {}
+): BeatSheetValidationResult {
+  const issues: string[] = [];
+  const bad = new Set<number>();
+  const shots = parseBeatSheet(text);
+  if (shots.length === 0) {
+    return {
+      issues: ["骨架没有检测到「镜头N」格式的镜头块。"],
+      badShotIndices: [],
+    };
+  }
+
+  // Check expected (图N) refs survived into at least one shot's 图 field.
+  const allFigText = shots.map((s) => s.fields.图 ?? "").join(" ");
+  for (const n of options.expectedImageIndices ?? []) {
+    if (!new RegExp(`\\(图\\s*${n}\\)`).test(allFigText)) {
+      issues.push(`骨架里所有镜头的「图」字段都没有保留 (图${n}) 引用。`);
+    }
+  }
+
+  let fixedCount = 0;
+  for (const shot of shots) {
+    const tag = `镜头${shot.index}`;
+    const f = shot.fields;
+    const flag = (msg: string) => {
+      issues.push(`${tag} ${msg}`);
+      bad.add(shot.index);
+    };
+
+    // Field completeness.
+    if (!f.目的) flag("缺「目的」字段。");
+    else if (!BEAT_PURPOSES.includes(f.目的.trim())) {
+      flag(`「目的」字段必须是七选一之一（${BEAT_PURPOSES.join("/")}），现在是「${f.目的}」。`);
+    }
+    if (!f.机位) flag("缺「机位」字段。");
+    else if (f.机位.length < 6) {
+      flag(`「机位」字段太抽象（「${f.机位}」）。必须能让真人摄影师按文字摆出三脚架位置。`);
+    }
+    if (!f.A) flag("缺「A」字段。");
+    if (!f.B) flag("缺「B」字段（如果只有一个主体写「B：无」）。");
+    if (!f.距离) flag("缺「距离」字段。");
+    if (!f.向量) flag("缺「向量」字段。");
+    if (!f.镜头运动) flag("缺「镜头运动」字段。");
+    else {
+      const motion = f.镜头运动.trim();
+      const ok = BEAT_CAMERA_MOTIONS.some((term) => motion.includes(term));
+      if (!ok) {
+        flag(`「镜头运动」字段必须包含清单词（${BEAT_CAMERA_MOTIONS.join("/")}），现在是「${motion}」。`);
+      }
+      if (motion.includes("固定")) {
+        fixedCount += 1;
+        if (shot.index > 1 || fixedCount > 1) {
+          flag(`「镜头运动」是固定。固定镜头只允许第 1 镜头用一次，必须改成推进/拉远/跟拍/摇镜/环绕/一镜到底之一。`);
+        }
+      }
+    }
+    if (!f.落幅) flag("缺「落幅」字段。");
+    if (!f.图) flag("缺「图」字段（如果没有参考图写「图：无」）。");
+
+    // Two-front check: both A and B contain 正面 → almost always wrong.
+    if (f.A && f.B && /正面/.test(f.A) && /正面/.test(f.B) && !/无/.test(f.B)) {
+      const vector = f.向量 ?? "";
+      const allowed = /并肩同向|一起朝镜头|同时转头|同向冲|并排冲/.test(vector);
+      if (!allowed) {
+        flag("A 和 B 同时写「正面」面对镜头，但「向量」没有写并肩同向/一起冲镜头/同时转头看镜头。对立双方必须按轴线互补：一个正面，另一个背影/侧面/45度侧面/过肩。");
+      }
+    }
+
+    // Ranged-attack-without-cut: 向量 contains both ranged-attack verb and
+    // impact verb without 反打/前景/后景 cue.
+    const vec = f.向量 ?? "";
+    const purposeRanged = f.目的 === "角色出手" || f.目的 === "目标反应";
+    if (hasRangedAttack(vec) && hasImpactReception(vec) && !purposeRanged) {
+      const depth = /反打|前景|后景|远处|近处|从画面[左右]/.test(vec);
+      if (!depth) {
+        flag("「向量」字段同时写出手（开枪/射击/发射）和承受（中弹/受弹），但没有标明前景/后景/反打透视。默认必须拆成「角色出手」和「目标反应」两个独立镜头。");
+      }
+    }
+
+    // Purpose overlap check: 目的=接触打击 but 向量 only describes 推进/移动
+    // (without 击中/相撞/碰撞/接触/砸/砍/劈/穿透/命中) — almost always wrong.
+    if (f.目的 === "接触打击" && f.向量) {
+      const hasImpactWord = /击中|相撞|碰撞|接触|砸|砍|劈|穿透|命中|挥棍|挥刀|挥剑|爆开|凹陷|崩裂/.test(f.向量);
+      if (!hasImpactWord) {
+        flag("「目的」是接触打击，但「向量」没有写明击中/相撞/砸/砍/劈/命中等接触动作。要么改目的，要么补充打击动作向量。");
+      }
+    }
+  }
+
+  return { issues: issues.slice(0, 18), badShotIndices: Array.from(bad).sort((a, b) => a - b) };
+}
+
+// ─── Beat Sheet generation + repair ────────────────────────────────
+
+function buildBeatSheetInput(draft: string, refImages: RefImage[]): string {
+  if (refImages.length === 0) return `【粗稿】\n${draft}`;
+  const hasSceneRef = refImages.some((img) => img.role === "scene");
+  const sceneLine = hasSceneRef
+    ? `\n【背景/场景特别要求】\n粗稿绑定了背景/场景图。每个相关镜头骨架的「图」字段必须保留 (图N) 引用。骨架阶段不展开图片视觉细节，只保留 (图N) 标记。`
+    : "";
+  return `【粗稿中通过 @ 选择的参考图】
 ${buildRefImageIndexMap(refImages)}
 ${sceneLine}
 
 【粗稿】
 ${draft}`;
+}
+
+async function generateBeatSheet(
+  draft: string,
+  refImages: RefImage[]
+): Promise<string> {
+  return callPromptModel(
+    PASS_0_BEAT_SHEET_SYSTEM,
+    buildBeatSheetInput(draft, refImages),
+    refImages.map((img) => img.file_path)
+  );
+}
+
+// ─── Combined-mode split helper ────────────────────────────────────
+
+export interface CombinedSplit {
+  /** Text between BEAT_SHEET tag and FIRST_PASS tag — empty if not found. */
+  beatSheet: string;
+  /** Text after FIRST_PASS tag — falls back to the full input if not found. */
+  firstPass: string;
+}
+
+/**
+ * Split the combined Pass-C output into beat sheet + first pass sections.
+ *
+ * The model is instructed to emit exactly two sections delimited by the
+ * literal tokens <<<BEAT_SHEET>>> and <<<FIRST_PASS>>>. To stay robust against
+ * the model wrapping the tokens in punctuation or whitespace, we match a
+ * regex rather than an exact literal.
+ *
+ * Failure modes:
+ * - No FIRST_PASS tag → return full output as firstPass, beatSheet empty.
+ * - BEAT_SHEET tag missing but FIRST_PASS present → take the prefix before
+ *   FIRST_PASS as beat sheet.
+ * - Tags swapped or repeated → take last FIRST_PASS occurrence.
+ */
+export function splitCombinedOutput(raw: string): CombinedSplit {
+  if (!raw) return { beatSheet: "", firstPass: "" };
+
+  const beatRe = /<<<\s*BEAT[_\s-]?SHEET\s*>>>/i;
+  const firstRe = /<<<\s*FIRST[_\s-]?PASS\s*>>>/i;
+
+  const firstMatch = raw.match(firstRe);
+  if (!firstMatch || firstMatch.index === undefined) {
+    // No FIRST_PASS tag — model ignored the two-stage format. Return whole
+    // output as the first pass so downstream still has something to use.
+    return { beatSheet: "", firstPass: raw.trim() };
+  }
+
+  const firstStart = firstMatch.index;
+  const firstEnd = firstStart + firstMatch[0].length;
+  const afterFirst = raw.slice(firstEnd).trim();
+
+  const beforeFirst = raw.slice(0, firstStart);
+  const beatMatch = beforeFirst.match(beatRe);
+  const beatStart =
+    beatMatch && beatMatch.index !== undefined
+      ? beatMatch.index + beatMatch[0].length
+      : 0;
+  const beatSheet = beforeFirst.slice(beatStart).trim();
+
+  return { beatSheet, firstPass: afterFirst };
+}
+
+/**
+ * Subprocess-mode fast path: one LLM call returns both stages, code splits.
+ * Skips all retry/repair passes — we tolerate occasional sub-optimal output
+ * in exchange for ~2-4× speedup. Validation still runs, but only logs.
+ */
+async function optimizeViaCombinedCall(
+  draft: string,
+  usedRefImages: RefImage[],
+  expectedImageIndices: number[],
+  expectedSceneIndices: number[]
+): Promise<string> {
+  const raw = await callPromptModel(
+    PASS_COMBINED_SYSTEM,
+    buildBeatSheetInput(draft, usedRefImages),
+    usedRefImages.map((img) => img.file_path)
+  );
+  const { beatSheet, firstPass } = splitCombinedOutput(raw);
+
+  if (beatSheet) {
+    const beatVal = validateBeatSheet(beatSheet, { expectedImageIndices });
+    if (beatVal.issues.length > 0) {
+      console.warn("[vellum] combined: beat sheet issues (no retry)", {
+        issues: beatVal.issues,
+        bad: beatVal.badShotIndices,
+      });
+    }
+    console.info("[vellum] combined beat sheet:\n" + beatSheet);
+  } else {
+    console.warn(
+      "[vellum] combined: no BEAT_SHEET section detected — model returned single-stage output"
+    );
+  }
+
+  if (!firstPass) {
+    console.warn("[vellum] combined: no FIRST_PASS section detected; returning raw output");
+    return raw;
+  }
+
+  const issues = validateFirstPassOutput(firstPass, {
+    expectedImageIndices,
+    expectedSceneIndices,
+  });
+  if (issues.length > 0) {
+    console.warn("[vellum] combined: first pass validation issues (no retry)", issues);
+  }
+  return firstPass;
+}
+
+async function repairBeatSheetShots(
+  draft: string,
+  refImages: RefImage[],
+  previousBeatSheet: string,
+  validation: BeatSheetValidationResult
+): Promise<string> {
+  if (validation.badShotIndices.length === 0) return previousBeatSheet;
+
+  // Issues table grouped so the model can see which shots need surgery.
+  const issuesText = validation.issues.map((i) => `- ${i}`).join("\n");
+  const targetShots = validation.badShotIndices.map((n) => `镜头${n}`).join("、");
+
+  const repairPrompt = `【原始粗稿】
+${draft}
+
+【上一次导演骨架（部分镜头不合格）】
+${previousBeatSheet}
+
+【机械校对发现的问题】
+${issuesText}
+
+【需要重写的镜头】
+${targetShots}
+
+请只重新输出**这些镜头**的骨架（保持原编号，仍是「镜头N + 九个字段」格式），其余镜头不要重写、不要输出。修复要点：
+1. 字段完整：目的（七选一）/ 机位（可摆三脚架）/ A（名字+位置+身体取景+朝向）/ B（同上或写「无」）/ 距离 / 向量 / 镜头运动（清单内）/ 落幅 / 图（保留 (图N) 或写「无」）。
+2. 轴线互补：双人对峙不能两个都「正面」，除非并肩同向冲镜头。
+3. 拆镜：远距离开枪/射箭/能量发射的「出手」和「承受」必须分两个镜头。如果上一次塞进一个镜头，请按需在原编号上调整为「角色出手」目的，并提示我后续应再插入一个「目标反应」镜头（但本次仍只重写问题镜头编号）。
+4. 不要输出风格、服化道、画面细节；骨架只解决导演问题。
+
+输出格式：直接输出修订后的镜头骨架块，不要前言、不要解释。`;
+
+  return callPromptModel(
+    PASS_0_BEAT_SHEET_SYSTEM,
+    repairPrompt,
+    refImages.map((img) => img.file_path)
+  );
+}
+
+/**
+ * Splice a partial-rewrite beat sheet back into the original full beat sheet,
+ * keeping unchanged shots intact. The model is asked to output only problem
+ * shots; this merges them back by 镜头N index.
+ */
+export function mergeBeatSheetShots(
+  original: string,
+  partial: string
+): string {
+  const origShots = parseBeatSheet(original);
+  const partialShots = parseBeatSheet(partial);
+  if (partialShots.length === 0) return original;
+
+  const byIndex = new Map<number, string>();
+  for (const s of origShots) byIndex.set(s.index, s.raw);
+  for (const s of partialShots) byIndex.set(s.index, s.raw);
+
+  const indices = Array.from(byIndex.keys()).sort((a, b) => a - b);
+  return indices.map((i) => byIndex.get(i)!).join("\n\n");
 }
 
 function validateFirstPassOutput(
@@ -1365,11 +1916,79 @@ async function readImageBlocksOrThrow(imagePaths: string[]): Promise<ImageBlock[
   return imageBlocks;
 }
 
+/**
+ * Pull 1-indexed shot numbers out of validateFirstPassOutput's issue strings.
+ * Issues that start with "镜头N" are shot-local; ones without a 镜头N prefix
+ * (e.g. "固定镜头过多", "输出丢失了…") are global and trigger full rewrite.
+ */
+export function extractBadShotIndices(issues: string[]): {
+  shotLocal: number[];
+  hasGlobalIssue: boolean;
+} {
+  const set = new Set<number>();
+  let hasGlobal = false;
+  for (const i of issues) {
+    const m = i.match(/^镜头\s*(\d+)/);
+    if (m) set.add(Number(m[1]));
+    else hasGlobal = true;
+  }
+  return {
+    shotLocal: Array.from(set).sort((a, b) => a - b),
+    hasGlobalIssue: hasGlobal,
+  };
+}
+
+interface IndexedShotBlock {
+  index: number;
+  body: string;
+}
+
+function extractShotBlocksIndexed(text: string): IndexedShotBlock[] {
+  const matches = Array.from(text.matchAll(/镜头\s*(\d+)\s*[，:：]/g));
+  if (matches.length === 0) return [];
+  return matches.map((match, idx) => {
+    const start = match.index ?? 0;
+    const end =
+      idx + 1 < matches.length ? matches[idx + 1].index ?? text.length : text.length;
+    return { index: Number(match[1]), body: text.slice(start, end).trim() };
+  });
+}
+
+/**
+ * Splice a partial rewrite back into the original First Pass prose. Preserves
+ * any preamble (title, intro line) before 镜头1, and replaces only shots whose
+ * 镜头N number is present in `partial`.
+ */
+export function mergeFirstPassShots(original: string, partial: string): string {
+  const origIdx = extractShotBlocksIndexed(original);
+  const partIdx = extractShotBlocksIndexed(partial);
+  if (partIdx.length === 0) return original;
+  if (origIdx.length === 0) return partial;
+
+  const firstStart = original.search(/镜头\s*\d+\s*[，:：]/);
+  const preamble = firstStart > 0 ? original.slice(0, firstStart).trimEnd() : "";
+
+  const byIndex = new Map<number, string>();
+  for (const s of origIdx) byIndex.set(s.index, s.body);
+  for (const s of partIdx) byIndex.set(s.index, s.body);
+
+  const indices = Array.from(byIndex.keys()).sort((a, b) => a - b);
+  const shotsText = indices.map((i) => byIndex.get(i)!).join("\n\n");
+  return preamble ? `${preamble}\n\n${shotsText}` : shotsText;
+}
+
 async function repairFirstPassOutput(
   draft: string,
   previousOutput: string,
   issues: string[],
-  refImages: RefImage[]
+  refImages: RefImage[],
+  options: {
+    /** If non-empty AND there's no global issue, only these shot numbers are
+     *  rewritten and merged back into previousOutput. Empty/global → full rewrite. */
+    badShotIndices?: number[];
+    /** Beat sheet from Pass 0 (导演骨架) — re-injected so repair shots stay aligned. */
+    beatSheet?: string;
+  } = {}
 ): Promise<string> {
   const imageContext =
     refImages.length > 0
@@ -1378,7 +1997,43 @@ ${buildRefImageIndexMap(refImages)}
 
 `
       : "";
-  const repairPrompt = `【原始粗稿】
+
+  const beatBlock = options.beatSheet?.trim()
+    ? `【导演骨架（最高优先级，扩写必须遵守）】
+${options.beatSheet.trim()}
+
+`
+    : "";
+
+  const surgical =
+    options.badShotIndices && options.badShotIndices.length > 0;
+  const targetText = surgical
+    ? options.badShotIndices!.map((n) => `镜头${n}`).join("、")
+    : "";
+
+  const repairPrompt = surgical
+    ? `【原始粗稿】
+${draft}
+
+【上一次输出（部分镜头不合格）】
+${previousOutput}
+
+【机械校对发现的问题】
+${issues.map((issue) => `- ${issue}`).join("\n")}
+
+【需要重写的镜头】
+${targetText}
+
+请只重写**这些镜头编号**对应的段落，保留原编号，使用「镜头N，」格式。**不要**输出其他镜头、标题、前言。修复要点：
+1. 第一句必须同时包含：景别 + 身体取景 + 运镜 + 镜头角度 + 主体面对镜头方向。
+2. 必须是一段连续画面；脸/手/道具/正/背/远近切换必须有运镜连接（下摇/上摇/平摇/环绕/推进/拉远/跟焦/同框）。
+3. 必须可被真人站位复现：摄影机站位、画面左/右、前/中/后景、两人距离、动作向量、最终落幅身体部位都要写清。
+4. 必须有前/中/后景构图与视觉落点。
+5. (图N) 标记必须保留；场景图不能当静态背景，必须按本镜头机位重新组织前中后景、光源、环境扰动。
+6. 固定镜头要换成推进/拉远/跟拍/摇拍/环绕/一镜到底。
+7. 保留原始粗稿的剧情、对白、动作；如有导演骨架，必须严格按骨架的目的/机位/A 与 B 位置/朝向/距离/向量/落幅扩写。
+8. 不要解释、不要 markdown。`
+    : `【原始粗稿】
 ${draft}
 
 【上一次输出（不合格，需要返工）】
@@ -1387,7 +2042,7 @@ ${previousOutput}
 【机械校对发现的问题】
 ${issues.map((issue) => `- ${issue}`).join("\n")}
 
-请只重写最终合格版本。必须逐镜头修复上述问题：
+请重写完整合格版本。必须逐镜头修复上述问题：
 1. 每个镜头第一句必须同时包含：景别 + 身体取景/画幅裁切 + 运镜 + 镜头角度 + 主体面对镜头方向。
 2. 每个镜头必须是一段连续画面；如果脸/手/道具/正/背/远景/微观发生变化，必须写清运镜连接或拆镜。
 3. 每个镜头必须先能被真人站位复现：写清摄影机站位/轴线、画面左/右、前景/中景/后景、两人距离、谁从哪里移动到哪里、镜头如何跟着移动、最终落幅停在哪个身体部位。
@@ -1399,7 +2054,7 @@ ${issues.map((issue) => `- ${issue}`).join("\n")}
 
   return callPromptModel(
     PASS_1_SYSTEM,
-    `${imageContext}${repairPrompt}`,
+    `${imageContext}${beatBlock}${repairPrompt}`,
     refImages.map((img) => img.file_path)
   );
 }
@@ -1413,9 +2068,54 @@ export async function optimizeDraftToFirstPass(
   const expectedSceneIndices = usedRefImages
     .filter((img) => img.role === "scene")
     .map((img) => img.image_index);
+
+  // ─── Subprocess fast path ─────────────────────────────
+  // Codex CLI / Claude CLI: 10-30s startup × 4 calls = 120-240s. Collapse to
+  // one call that emits both stages with delimiters. No retry — we live with
+  // occasional sub-optimal output to keep the user iterating fast.
+  const mode = await getAuthMode();
+  if (mode === "cli" || mode === "codex") {
+    return optimizeViaCombinedCall(
+      draft,
+      usedRefImages,
+      expectedImageIndices,
+      expectedSceneIndices
+    );
+  }
+
+  // ─── API fast path (separate stages + retry, since each call is 3-10s) ──
+
+  // ─── Pass 0: 导演骨架 ──────────────────────────────────
+  // First make the model commit to camera blocking before writing any prose.
+  // The beat sheet is short structured text — easier to validate mechanically
+  // and easier for the model to reason about than 7000+ chars of free-form rules.
+  let beatSheet = await generateBeatSheet(draft, usedRefImages);
+  const beatVal = validateBeatSheet(beatSheet, { expectedImageIndices });
+  if (beatVal.badShotIndices.length > 0 || beatVal.issues.length > 0) {
+    console.warn("[vellum] beat sheet validation failed", {
+      issues: beatVal.issues,
+      bad: beatVal.badShotIndices,
+    });
+    if (beatVal.badShotIndices.length > 0) {
+      try {
+        const partial = await repairBeatSheetShots(
+          draft,
+          usedRefImages,
+          beatSheet,
+          beatVal
+        );
+        beatSheet = mergeBeatSheetShots(beatSheet, partial);
+      } catch (e) {
+        console.warn("[vellum] beat sheet repair failed; continuing with original", e);
+      }
+    }
+  }
+  console.info("[vellum] beat sheet ready:\n" + beatSheet);
+
+  // ─── Pass 1: 按骨架扩写 ────────────────────────────────
   const first = await callPromptModel(
     PASS_1_SYSTEM,
-    buildDraftOptimizeInput(draft, usedRefImages),
+    buildDraftOptimizeInput(draft, usedRefImages, beatSheet),
     usedRefImages.map((img) => img.file_path)
   );
   const issues = validateFirstPassOutput(first, {
@@ -1424,21 +2124,36 @@ export async function optimizeDraftToFirstPass(
   });
   if (issues.length === 0) return first;
 
-  console.warn("[vellum] first pass failed validation; repairing", issues);
-  const repaired = await repairFirstPassOutput(
+  // ─── Pass 1b: 精准修复 ─────────────────────────────────
+  // Surgical repair: only rewrite shots whose 镜头N is flagged. Global issues
+  // (missing format, missing global image markers, fixed-camera overuse)
+  // still trigger a full rewrite.
+  const { shotLocal, hasGlobalIssue } = extractBadShotIndices(issues);
+  console.warn("[vellum] first pass failed validation; repairing", {
+    issues,
+    surgicalTargets: shotLocal,
+    fullRewrite: hasGlobalIssue || shotLocal.length === 0,
+  });
+  const surgical = !hasGlobalIssue && shotLocal.length > 0;
+  const partialOrFull = await repairFirstPassOutput(
     draft,
     first,
     issues,
-    usedRefImages
+    usedRefImages,
+    {
+      badShotIndices: surgical ? shotLocal : [],
+      beatSheet,
+    }
   );
-  const repairedIssues = validateFirstPassOutput(repaired, {
+  const merged = surgical ? mergeFirstPassShots(first, partialOrFull) : partialOrFull;
+  const repairedIssues = validateFirstPassOutput(merged, {
     expectedImageIndices,
     expectedSceneIndices,
   });
   if (repairedIssues.length > 0) {
     console.warn("[vellum] repaired first pass still has issues", repairedIssues);
   }
-  return repaired;
+  return merged;
 }
 
 // ─── Pass 2: first pass + bindings + images → final enhanced ────────

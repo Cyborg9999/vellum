@@ -470,7 +470,9 @@ function filterRefImages(
       return a.image_index - b.image_index;
     });
   }
-  return filtered.slice(0, 12);
+  // Show all matches — MentionList has overflow-y-auto + arrow-key
+  // scrollIntoView, so the popup scales to any project size.
+  return filtered;
 }
 
 function roleZh(role: string): string {

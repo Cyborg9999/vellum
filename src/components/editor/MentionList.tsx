@@ -2,6 +2,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useRef,
   useState,
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -34,10 +35,18 @@ function roleZh(role: string): string {
 export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
   ({ items, command, binding, bindingWord }, ref) => {
     const [selected, setSelected] = useState(0);
+    const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
     useEffect(() => {
       setSelected(0);
     }, [items]);
+
+    // Keep the keyboard-selected row inside the scrollable popup viewport —
+    // without this, ↓ past row 8 (popup is ~340px tall) silently moves the
+    // cursor offscreen and the user thinks the selection got stuck.
+    useEffect(() => {
+      itemRefs.current[selected]?.scrollIntoView({ block: "nearest" });
+    }, [selected]);
 
     const pick = (index: number) => {
       const item = items[index];
@@ -95,6 +104,9 @@ export const MentionList = forwardRef<MentionListHandle, MentionListProps>(
           {items.map((img, i) => (
             <button
               key={img.id}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
               onMouseEnter={() => setSelected(i)}
               onClick={() => pick(i)}
               className={`flex items-center gap-2.5 px-2 py-1.5 rounded text-left transition ${
