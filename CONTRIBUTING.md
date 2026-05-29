@@ -1,114 +1,108 @@
-# Contributing to Vellum (Internal)
+# Contributing to Vellum
 
-Vellum 是一个**私人协作**项目。这份文档是给 collaborator 看的内部约定，
-不是开源 contributor guide。
+Thanks for taking the time to look at the code. Vellum is maintained by a small group with a single owner who reviews and merges every change; this document describes the workflow we expect from contributors.
 
-## 第一次 setup
+## First-time setup
 
 ```bash
 git clone https://github.com/Cyborg9999/vellum.git
 cd vellum
-./scripts/setup.sh        # 自动检测你机器上的 dreamina / codex / claude 路径
+./scripts/setup.sh        # auto-detects dreamina / codex / claude on your machine
 npm install
 npm run tauri dev
 ```
 
-`scripts/setup.sh` 会基于 `src-tauri/capabilities/default.json.template` 生成
-你本地能跑的 `src-tauri/capabilities/default.json`（**本地文件，gitignored**）。
+`scripts/setup.sh` reads `src-tauri/capabilities/default.json.template` and writes a working `src-tauri/capabilities/default.json` for your machine (**local file, gitignored**).
 
-如果你的 dreamina / codex / claude 不在 `~/.local/bin/` / `/opt/homebrew/bin/`
-/ `/usr/local/bin/`，setup.sh 会留占位符，自己手动编辑 `default.json` 把
-对应 cmd 改成你机器的真实路径。
+If your `dreamina` / `codex` / `claude` binaries are not in `~/.local/bin/`, `/opt/homebrew/bin/`, or `/usr/local/bin/`, `setup.sh` leaves placeholders. Hand-edit `default.json` to point at the real absolute paths.
 
-## 工作流
+## Workflow
 
-**Repo 是 protected main**——你不能直接 push 到 main。所有改动走 PR：
+**`main` is protected** — direct pushes are blocked. All changes go through a pull request:
 
 ```bash
 git checkout main && git pull
-git checkout -b feat/your-thing       # 或 fix/xxx / chore/xxx
-# 改代码
-npm test                              # 必须全绿
-npx tsc --noEmit                      # 必须 0 错误
+git checkout -b feat/your-thing       # or fix/xxx, chore/xxx
+# edit code
+npm test                              # must pass
+npx tsc --noEmit                      # must be clean
 git add ... && git commit -m "..."
 git push -u origin feat/your-thing
-gh pr create --title "..." --body "..."   # 或者 GitHub web UI 开 PR
+gh pr create --title "..." --body "..."   # or open the PR via the GitHub UI
 ```
 
-Owner（@Cyborg9999）审完 → merge → 你 `git checkout main && git pull` 同步。
+The owner (@Cyborg9999) reviews and merges. After merge, sync with `git checkout main && git pull`.
 
-## Commit message 风格
+## Commit message style
 
-中文标题 + 类别前缀（feat / fix / chore / test / docs / refactor / perf）+ 简短描述：
+Category prefix (`feat` / `fix` / `chore` / `test` / `docs` / `refactor` / `perf`) + short summary:
 
 ```
-feat: 软删除图库 + Submit/dreamina 提交闭环
-fix(library): compactImageIndices 原子 + 并发互斥
-fix(submit): submit_id 单独列 + status 白名单
-test: vitest 基线 + 25 个纯函数 unit test
-docs: 更新 SETUP.md 加 Apple Silicon 路径示例
+feat: soft-delete in library + Submit/dreamina closed loop
+fix(library): make compactImageIndices atomic + add concurrency guard
+fix(submit): split submit_id into its own column + whitelist status values
+test: vitest baseline + 25 pure-function unit tests
+docs: update SETUP.md with Apple Silicon path examples
 ```
 
-正文（可选）解释 **why**，不解释 what。不需要 `Co-Authored-By` trailer。
+The optional body explains **why**, not what.
 
 ## Pre-PR checklist
 
 ```bash
-npx tsc --noEmit          # 类型 0 错误
-npm test                  # vitest 全绿
-cargo build --manifest-path src-tauri/Cargo.toml    # Rust 编译通过
+npx tsc --noEmit          # zero type errors
+npm test                  # vitest passes
+cargo build --manifest-path src-tauri/Cargo.toml    # Rust compiles
 ```
 
-UI 改动还要：
+For UI changes also:
 
-- 跑一遍 `npm run tauri dev`，亲眼看一遍改的功能能用
-- 关键路径（Library / Shots / Submit / DB 写）一定要手测，不要只看 build 过
+- Run `npm run tauri dev` and visually verify the change.
+- Critical paths (Library, Shots, Submit, DB writes) need manual testing — passing the build is not enough.
 
-## 代码风格
+## Code style
 
-- TypeScript strict（`tsc --noEmit` 必须 0 错误）
-- 注释只写 **why**，不写 what / 不引用当前 PR / 不带 "TODO 等下个 PR 修"
-- 别动 `compactImageIndices` —— grill 修过 3 个 critical bug，再改先开 issue 讨论
-- 别加 try-catch 掩盖错误。错误就让它 throw 到 ErrorBoundary
+- TypeScript strict (`tsc --noEmit` must be clean).
+- Comments explain **why**, not what. Don't reference the current PR or leave "TODO next PR" notes.
+- Do **not** touch `compactImageIndices` — three critical bugs have already been fixed there. Open an issue first.
+- Don't wrap code in `try`/`catch` to silently absorb errors. Let them propagate to the `ErrorBoundary`.
 
-## DB migration 协议（重要）
+## Database migration protocol (important)
 
-migration 文件**已应用到所有人的本地 DB**，**永远不要改老的 migration**。新加字段就**新写一个 migration**：
+Migration files **are applied to every developer's local DB**. **Never edit an existing migration.** Add a new file instead:
 
 ```
-src-tauri/migrations/00X_<name>.sql      ← 新增，编号递增
-src-tauri/src/lib.rs                     ← 注册新 migration
-src/lib/types.ts                         ← 同步 TS 类型
-src/lib/db.ts                            ← 加 CRUD
+src-tauri/migrations/00X_<name>.sql      ← new file, increment the number
+src-tauri/src/lib.rs                     ← register the new migration
+src/lib/types.ts                         ← keep TS types in sync
+src/lib/db.ts                            ← add CRUD as needed
 ```
 
-**多人并行风险**：你写了 migration 007，我同时也写了 migration 007，谁先 merge 谁占编号，后者必须 rebase 把自己的改成 008。
+**Concurrency hazard**: if two of us both number a migration `007`, whoever merges first wins; the other must rebase and renumber to `008`.
 
-## 不要 commit 的东西
+## Do not commit
 
-- `src-tauri/capabilities/default.json`（gitignored，每人本地生成）
-- `.claude/notes.local.md`（本地 scratch 笔记）
-- API keys、`.env` 文件、`vellum.db`
-- `grill-report-*.md`、`coverage/` 之类的工具产出
+- `src-tauri/capabilities/default.json` (gitignored; generated per developer)
+- `.claude/notes.local.md` (local scratch notes)
+- API keys, `.env` files, `vellum.db`
+- `grill-report-*.md`, `coverage/`, and other tool output
 
-## 沟通
+## Communication
 
-- **Bug / feature 讨论 / 重构提议**：开 GitHub Issue
-- **同步聊**：飞书 / 微信（具体群链接 owner 发你）
-- **PR 评论**：在 PR 文件 diff 上点评，不要在群里讨论代码细节（不可追溯）
+- **Bugs, feature discussion, refactor proposals**: open a GitHub Issue.
+- **PR review**: leave comments on the diff itself, not in chat — diff comments stay searchable.
 
-## 已知技术陷阱（避免踩坑）
+## Known technical pitfalls
 
-参考 [CLAUDE.md](CLAUDE.md) "已知陷阱" 一节。常见的：
+See the "已知陷阱" section of [CLAUDE.md](CLAUDE.md). The common ones:
 
-- Vite 7 要 Node ≥ 20.19（Node 21 会炸 `crypto.hash`）
-- Tauri 2 SQL plugin 权限必须列出 `sql:allow-execute / select / load / close`
-- TipTap Mention 在 Tauri WebKit release build 不稳，已用手写 `handleKeyDown` 替换
-- macOS Dock 缓存图标，改 icon 要 `killall Dock`
-- `tauri build` 的 `bundle_dmg.sh` 偶尔崩，重跑一次就行
-- codex CLI 必须用 `--sandbox read-only`，**不能**用 `--dangerously-bypass`
+- Vite 7 requires Node ≥ 20.19 (Node 21 crashes on `crypto.hash`).
+- Tauri 2 SQL plugin permissions must list `sql:allow-execute` / `select` / `load` / `close`.
+- TipTap Mention is unstable in Tauri WebKit release builds; we replaced it with a hand-written `handleKeyDown`.
+- macOS Dock caches icons — `killall Dock` after changing them.
+- `tauri build`'s `bundle_dmg.sh` occasionally crashes; re-running usually works.
+- The Codex CLI must use `--sandbox read-only`. Do **not** use `--dangerously-bypass`.
 
 ## License
 
-私人 repo，no LICENSE file = all rights reserved。你提交的代码版权归 owner
-（@Cyborg9999）所有，仅用于本 repo 内部协作。
+Vellum is released under the [MIT License](./LICENSE). By contributing you agree that your contributions will be licensed under the same terms.

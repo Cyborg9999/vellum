@@ -1,26 +1,26 @@
 # Vellum Setup
 
-Vellum 是一个 macOS 专用的个人项目。这份指引假定你有耐心改几处硬编码路径。
+Vellum is a macOS-only desktop app. This guide assumes you are comfortable editing a few hard-coded paths during first-time setup.
 
-## 1. 系统要求
+## 1. System requirements
 
-- **macOS**（Apple Silicon 或 Intel）
-- **Rust** ≥ 1.95：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- **Node 22 LTS**：`nvm install 22`（Vite 7 要求 ≥ 20.19；Node 21 会炸 `crypto.hash`）
-- **Tauri CLI v2**：`cargo install tauri-cli --version "^2"`
-- 跨架构 build（Intel Mac 二进制）：`rustup target add x86_64-apple-darwin`
+- **macOS** (Apple Silicon or Intel)
+- **Rust** ≥ 1.95: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- **Node 22 LTS**: `nvm install 22` (Vite 7 requires ≥ 20.19; Node 21 crashes on `crypto.hash`)
+- **Tauri CLI v2**: `cargo install tauri-cli --version "^2"`
+- Cross-arch build (Intel Mac binary): `rustup target add x86_64-apple-darwin`
 
-## 2. 三个外部 CLI
+## 2. The three external CLIs
 
-Vellum 调用三个外部 CLI 做事；你需要**自己有访问权**：
+Vellum shells out to three external CLIs. You need access to each of them on your own account:
 
-| CLI | 用途 | 安装方式 |
+| CLI | Purpose | Install |
 |---|---|---|
-| `dreamina` | 即梦 (Seedance 2.0) 视频生成，唯一发起视频的入口 | 字节官方发布；需要订阅 + 登录 |
-| `codex` | OpenAI Codex CLI（默认 Pass 2 backend，订阅模式零额外费用） | `npm install -g @openai/codex` |
-| `claude` | Claude Code CLI（可选 backend，订阅模式零额外费用） | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| `dreamina` | Video generation backend (the only path that actually submits a video) | Vendor-distributed; requires a subscription and login |
+| `codex` | OpenAI Codex CLI (default Pass 2 backend; zero marginal cost under a ChatGPT subscription) | `npm install -g @openai/codex` |
+| `claude` | Claude Code CLI (optional backend; zero marginal cost under a Claude subscription) | `curl -fsSL https://claude.ai/install.sh \| bash` |
 
-确认安装：
+Verify installation:
 
 ```bash
 which dreamina codex claude
@@ -29,91 +29,88 @@ codex --version
 claude --version
 ```
 
-## 3. 改硬编码路径（关键步骤）
+> **Terms of service**: Each CLI runs against your own subscription. You are responsible for making sure your usage stays within the relevant provider's terms.
 
-`src-tauri/capabilities/default.json` 给 Tauri shell sandbox 列出**允许执行的 binary 绝对路径**。这些路径写死了作者机器的位置，你需要改成自己的。
+## 3. Patch hard-coded paths (required)
 
-**跑一遍 `scripts/setup.sh`，它会自动 `which` 出三个 binary 的实际路径，
-渲染 `src-tauri/capabilities/default.json.template` 生成你本地能跑的
-`src-tauri/capabilities/default.json`**（这个文件是 gitignored，每人本地一份）：
+`src-tauri/capabilities/default.json` lists the **absolute paths** Tauri's shell sandbox is allowed to execute. The committed template uses the author's machine layout; you must regenerate it for your own.
+
+**Run `scripts/setup.sh`**. It auto-resolves the three binaries with `which`, renders `src-tauri/capabilities/default.json.template`, and writes a local `src-tauri/capabilities/default.json` (this file is gitignored — one copy per developer):
 
 ```bash
 ./scripts/setup.sh
 ```
 
-setup.sh 优先查这些位置（按顺序）：
+`setup.sh` looks for each binary in this order:
 `$HOME/.local/bin/<name>` → `/opt/homebrew/bin/<name>` →
-`/usr/local/bin/<name>` → `/usr/bin/<name>` → `which <name>` fallback。
+`/usr/local/bin/<name>` → `/usr/bin/<name>` → `which <name>` as a last resort.
 
-如果你的 binary 在别处（比如 nvm 全局），setup.sh 会留 `__XXX_PATH__` 占位符；
-手工编辑 `src-tauri/capabilities/default.json` 改成绝对路径，或者把 binary 软链
-到 `/opt/homebrew/bin/` 再重跑 setup.sh。
+If your binary lives somewhere else (e.g. an nvm global bin), `setup.sh` leaves a `__XXX_PATH__` placeholder. Hand-edit `src-tauri/capabilities/default.json` to fill in the absolute path, or symlink the binary into `/opt/homebrew/bin/` and re-run `setup.sh`.
 
-> Tauri 2 capabilities **不支持** `$HOME` / `~` 占位符在 `shell:allow-execute.cmd`，
-> 必须写绝对路径——这就是为什么要 setup.sh 而不是一份共享 default.json。
+> Tauri 2 capabilities **do not expand** `$HOME` / `~` inside `shell:allow-execute.cmd`, which is why we ship a template + script rather than one shared `default.json`.
 
-## 4. 安装与启动
+## 4. Install and run
 
 ```bash
 git clone https://github.com/Cyborg9999/vellum.git
 cd vellum
-./scripts/setup.sh           # 生成本地 capabilities/default.json
+./scripts/setup.sh           # generate local capabilities/default.json
 npm install
-npm run tauri dev            # 开发模式，端口 1420，热重载
+npm run tauri dev            # dev mode, port 1420, hot reload
 ```
 
-第一次启动会跑 SQLite migration 001–006，在 console 应该看到 `applied migration 6 (add_submit_id_column)`。
+On first launch the SQLite migrations 001–006 run; the console should report `applied migration 6 (add_submit_id_column)`.
 
-## 5. Settings 配置（首次启动）
+## 5. Configure settings (first launch)
 
-进 app 后点 ⚙ Settings，选一个 **Auth mode**：
+Open the app, click ⚙ Settings, and pick an **Auth mode**:
 
-| Mode | 速度 | 费用 |
+| Mode | Latency | Cost |
 |---|---|---|
-| Claude API | 快（3-10s） | 按 token 计费，需 API key |
-| Claude CLI | 慢（30-60s） | 零额外（走你的 Claude Code 订阅） |
-| OpenAI API | 快（5-25s） | 按 token 计费，需 API key |
-| Codex CLI | 中（10-30s） | 零额外（走你的 ChatGPT 订阅） |
+| Claude API | Fast (3–10 s) | Pay-per-token; requires API key |
+| Claude CLI | Slow (30–60 s) | Zero marginal (uses your Claude Code subscription) |
+| OpenAI API | Fast (5–25 s) | Pay-per-token; requires API key |
+| Codex CLI | Medium (10–30 s) | Zero marginal (uses your ChatGPT subscription) |
 
-API key 存在 SQLite `settings` 表（**明文** — 见 [Known caveats](#known-caveats)）。
+API keys are stored in the SQLite `settings` table (**plaintext** — see [Known caveats](#known-caveats)).
 
-## 6. 打包成 .app
+## 6. Build a .app
 
 ```bash
-npm run tauri build           # 生成 src-tauri/target/release/bundle/macos/Vellum.app
-# 安装到 /Applications
+npm run tauri build           # produces src-tauri/target/release/bundle/macos/Vellum.app
+# install to /Applications
 rm -rf /Applications/Vellum.app
 cp -R src-tauri/target/release/bundle/macos/Vellum.app /Applications/
 open /Applications/Vellum.app
 
-# Universal binary（Intel + ARM）
+# Universal binary (Intel + ARM)
 npm run tauri build -- --target universal-apple-darwin
 ```
 
-`bundle_dmg.sh` 偶尔会因为 osascript/hdiutil 时序失败，**不影响 .app 生成**，重跑一次通常 OK。
+`bundle_dmg.sh` occasionally fails due to `osascript` / `hdiutil` timing. **This does not affect the .app**; re-running the build usually works.
 
-## 7. 测试
+## 7. Tests
 
 ```bash
-npm test            # vitest run，纯函数单测
-npm run test:watch  # 开发时 watch 模式
-npx tsc --noEmit    # 类型检查
-cargo test --manifest-path src-tauri/Cargo.toml   # Rust 端
+npm test            # vitest run, pure-function unit tests
+npm run test:watch  # watch mode during development
+npx tsc --noEmit    # type check
+cargo test --manifest-path src-tauri/Cargo.toml   # Rust side
 ```
 
-## 8. 数据存放位置
+## 8. Where data lives
 
 ```
 ~/Library/Application Support/studio.vellum.desktop/
-├── vellum.db          ← 项目元数据、参考图引用、镜头本、提交记录
-└── pasted/            ← Cmd+V 粘贴入库的图片副本
+├── vellum.db          ← project metadata, ref-image rows, shots, submissions
+└── pasted/            ← image copies created by Cmd+V paste-to-library
 ```
 
-升级前**先备份** `vellum.db`。Migration 出错会让你后悔。
+**Back up `vellum.db` before upgrading.** Failed migrations are painful to recover from.
 
 ## Known caveats
 
-- **API key 明文存 SQLite**（grill H5 已识别，未修） — 谨慎共享 DB 文件
-- **fs:scope 较宽**（含 `/Volumes/**` 和 `$HOME/Projects/**` ，grill H6 已识别） — Renderer XSS 风险（小）
-- **没有 Tauri updater**（grill 延后项） — 你需要手动 git pull + rebuild
-- **没有签名**（无 Apple Developer ID） — 首次运行 Gatekeeper 会拦，右键 → 打开 一次绕过
+- **API keys are stored in plaintext in SQLite** (grill H5; not yet fixed) — be careful when sharing the DB file.
+- **`fs:scope` is fairly broad** (includes `/Volumes/**` and `$HOME/Projects/**`, grill H6) — small renderer-XSS risk.
+- **No Tauri updater** (deferred grill finding) — upgrades require manual `git pull` + rebuild.
+- **No code signing** (no Apple Developer ID) — Gatekeeper blocks the first run; right-click → Open to bypass once.
