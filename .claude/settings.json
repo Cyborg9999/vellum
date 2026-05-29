@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && if [ -n \"$(git status --porcelain 2>/dev/null)\" ]; then git stash push -u -m \"auto-session-start-$(date +%Y%m%d-%H%M%S)\" >/dev/null 2>&1 && git stash apply --quiet 2>/dev/null; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
