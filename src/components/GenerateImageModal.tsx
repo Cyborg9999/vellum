@@ -32,7 +32,19 @@ type Status = "idle" | "generating" | "preview" | "saving" | "error";
 type AngleKey = "top-down" | "low-angle" | "eye-level" | "close-up";
 type ResultAngle = AngleKey | "custom";
 
-const SIZE_OPTIONS: ImageSize[] = ["1024x1024", "1536x1024", "1024x1536"];
+const ASPECT_OPTIONS: ReadonlyArray<{
+  ratio: string;
+  size: ImageSize;
+  w: number;
+  h: number;
+}> = [
+  { ratio: "16:9", size: "1792x1024", w: 16, h: 9 },
+  { ratio: "9:16", size: "1024x1792", w: 9, h: 16 },
+  { ratio: "2:1", size: "2048x1024", w: 2, h: 1 },
+  { ratio: "1:2", size: "1024x2048", w: 1, h: 2 },
+  { ratio: "4:3", size: "1536x1152", w: 4, h: 3 },
+  { ratio: "3:4", size: "1152x1536", w: 3, h: 4 },
+];
 const QUALITY_OPTIONS: ImageQuality[] = ["auto", "low", "medium", "high"];
 
 const ANGLE_PROMPTS: Record<AngleKey, string> = {
@@ -92,7 +104,7 @@ export function GenerateImageModal({
 }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState<ImageSize>("1024x1024");
+  const [size, setSize] = useState<ImageSize>("1792x1024");
   const [quality, setQuality] = useState<ImageQuality>("auto");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -174,7 +186,7 @@ export function GenerateImageModal({
     }
     setStatus("idle");
     setPrompt("");
-    setSize("1024x1024");
+    setSize("1792x1024");
     setQuality("auto");
     setErrorMsg("");
     setSourceImage(null);
@@ -564,19 +576,45 @@ export function GenerateImageModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="text-[10px] uppercase text-vellum-faint mb-2">
-                Size
+                Aspect ratio
               </div>
-              <select
-                value={size}
-                onChange={(e) => setSize(e.target.value as ImageSize)}
-                className="w-full bg-vellum-bg border border-vellum-border rounded px-3 py-2 text-vellum-text text-sm font-mono focus:border-vellum-accent-border transition"
-              >
-                {SIZE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-3 gap-2">
+                {ASPECT_OPTIONS.map((opt) => {
+                  const selected = size === opt.size;
+                  return (
+                    <button
+                      key={opt.ratio}
+                      type="button"
+                      onClick={() => setSize(opt.size)}
+                      className={cn(
+                        "h-14 px-2 py-2 rounded border flex flex-col items-stretch justify-center transition",
+                        selected
+                          ? "border-vellum-accent bg-vellum-accent-soft text-vellum-text"
+                          : "border-vellum-border bg-vellum-elevated text-vellum-muted hover:text-vellum-text hover:border-vellum-accent-border"
+                      )}
+                    >
+                      <div className="flex-1 flex items-center justify-center px-2">
+                        <div
+                          style={{
+                            aspectRatio: `${opt.w} / ${opt.h}`,
+                            maxHeight: "28px",
+                            maxWidth: "100%",
+                          }}
+                          className={cn(
+                            "rounded-sm",
+                            selected
+                              ? "bg-vellum-accent/60"
+                              : "bg-vellum-muted/40"
+                          )}
+                        />
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wider mt-1 text-center">
+                        {opt.ratio}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase text-vellum-faint mb-2">

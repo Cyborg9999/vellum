@@ -8,7 +8,17 @@ import { appLocalDataDir, join } from "@tauri-apps/api/path";
 import { getSetting, addRefImage } from "./db";
 import type { RefImage, RefImageRole } from "./types";
 
-export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536" | "auto";
+export type ImageSize =
+  | "auto"
+  | "1024x1024"
+  | "1536x1024"
+  | "1024x1536"
+  | "1792x1024" // 16:9
+  | "1024x1792" // 9:16
+  | "2048x1024" // 2:1
+  | "1024x2048" // 1:2
+  | "1536x1152" // 4:3
+  | "1152x1536"; // 3:4
 export type ImageQuality = "low" | "medium" | "high" | "auto";
 
 export interface GenerateImageOptions {
