@@ -227,6 +227,7 @@ async function callViaGeminiCLI(
     "--output-format", "json",
     "--model", model,
     "--yolo",
+    "--skip-trust",
     "-p", fullPrompt,
   ];
 
