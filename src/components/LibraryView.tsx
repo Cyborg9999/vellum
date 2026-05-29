@@ -102,13 +102,62 @@ function mimeToExt(mime: string): string {
 }
 
 /**
+ * Resize an image blob to a long-edge cap (default 1024px) + JPEG 0.85
+ * quality. Pasted Midjourney images are typically 2048-3840px PNG (3-8 MB);
+ * downstream LLM API calls re-upload them as base64 every Pass, so shrinking
+ * once at paste time saves seconds on every subsequent optimization.
+ *
+ * Returns the original bytes if the image is already within the cap, or if
+ * any decode step fails (we never want resize to block library import).
+ */
+async function resizeForLibrary(
+  blob: File,
+  maxEdge = 1024
+): Promise<{ bytes: Uint8Array; ext: string }> {
+  const buffer = await blob.arrayBuffer();
+  const original = new Uint8Array(buffer);
+  const originalExt = mimeToExt(blob.type);
+
+  try {
+    const img = await createImageBitmap(blob);
+    const longEdge = Math.max(img.width, img.height);
+    if (longEdge <= maxEdge) {
+      img.close?.();
+      return { bytes: original, ext: originalExt };
+    }
+    const scale = maxEdge / longEdge;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      img.close?.();
+      return { bytes: original, ext: originalExt };
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    img.close?.();
+    const compressed = await canvas.convertToBlob({
+      type: "image/jpeg",
+      quality: 0.85,
+    });
+    return {
+      bytes: new Uint8Array(await compressed.arrayBuffer()),
+      ext: "jpg",
+    };
+  } catch (e) {
+    console.warn("[paste] resize failed, keeping original:", e);
+    return { bytes: original, ext: originalExt };
+  }
+}
+
+/**
  * Save a clipboard image blob to the app's local data dir and return the
  * absolute path. Used by the paste-to-library handler so users can Cmd+V
- * directly from Midjourney/browser without saving-then-drag.
+ * directly from Midjourney/browser without saving-then-drag. Resizes to
+ * 1024px long edge before write to keep downstream LLM uploads snappy.
  */
 async function saveClipboardImage(blob: File): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
+  const { bytes, ext } = await resizeForLibrary(blob, 1024);
 
   const baseDir = await appLocalDataDir();
   const pastedDir = await join(baseDir, "pasted");
@@ -116,7 +165,6 @@ async function saveClipboardImage(blob: File): Promise<string> {
     await mkdir(pastedDir, { recursive: true });
   }
 
-  const ext = mimeToExt(blob.type);
   const stamp = new Date()
     .toISOString()
     .replace(/[:.]/g, "-")
