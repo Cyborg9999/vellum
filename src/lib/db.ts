@@ -390,6 +390,7 @@ export async function addRefImage(input: {
   width?: number;
   height?: number;
   file_size?: number;
+  source?: "imported" | "generated";
 }): Promise<RefImage> {
   const db = await getDb();
   const max = await db.select<{ max_idx: number | null }[]>(
@@ -399,8 +400,8 @@ export async function addRefImage(input: {
   const nextIdx = (max[0]?.max_idx ?? 0) + 1;
   const result = await db.execute(
     `INSERT INTO ref_images
-       (project_id, image_index, role, name, file_path, thumbnail_path, width, height, file_size, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (project_id, image_index, role, name, file_path, thumbnail_path, width, height, file_size, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.project_id,
       nextIdx,
@@ -411,6 +412,7 @@ export async function addRefImage(input: {
       input.width ?? null,
       input.height ?? null,
       input.file_size ?? null,
+      input.source ?? "imported",
       now(),
     ]
   );

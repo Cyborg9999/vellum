@@ -18,6 +18,9 @@ import {
   Pencil,
   Copy,
   Eye,
+  Sparkles,
+  Layers,
+  Download,
 } from "lucide-react";
 import type { RefImage, RefImageRole } from "@/lib/types";
 import { ROLE_LABEL } from "@/lib/types";
@@ -35,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { ImageLightbox } from "./ImageLightbox";
 import { ContextMenu } from "./ContextMenu";
 import { RenameDialog } from "./RenameDialog";
+import { GenerateImageModal } from "./GenerateImageModal";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i;
 const ROLES: RefImageRole[] = ["character", "scene", "prop"];
@@ -147,6 +151,9 @@ export function LibraryView() {
   const [dragging, setDragging] = useState(false);
   const [layout, setLayout] = useState<Layout>(loadLayout);
   const [lightboxId, setLightboxId] = useState<number | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<
+    "all" | "imported" | "generated"
+  >("all");
 
   // Multi-select + trash
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -158,6 +165,7 @@ export function LibraryView() {
     image: RefImage;
   } | null>(null);
   const [renameTarget, setRenameTarget] = useState<RefImage | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   // Marquee rectangle (client coords, fixed-position overlay)
@@ -609,6 +617,11 @@ export function LibraryView() {
     prop: images.filter((i) => i.role === "prop").length,
   };
 
+  const visibleImages =
+    sourceFilter === "all"
+      ? images
+      : images.filter((i) => i.source === sourceFilter);
+
   return (
     <div className="relative">
       <div className="border-b border-vellum-border px-8 py-7 flex items-end justify-between gap-4">
@@ -641,6 +654,40 @@ export function LibraryView() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {!showTrash && (
+            <div className="flex items-center border border-vellum-border rounded overflow-hidden">
+              {(
+                [
+                  { id: "all", icon: <Layers size={11} />, label: "All" },
+                  {
+                    id: "imported",
+                    icon: <Download size={11} />,
+                    label: "Imported",
+                  },
+                  {
+                    id: "generated",
+                    icon: <Sparkles size={11} />,
+                    label: "Generated",
+                  },
+                ] as const
+              ).map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => setSourceFilter(it.id)}
+                  title={it.label}
+                  className={cn(
+                    "h-7 px-2 flex items-center gap-1 text-[11px] uppercase transition",
+                    sourceFilter === it.id
+                      ? "bg-vellum-accent text-vellum-bg"
+                      : "text-vellum-muted hover:text-vellum-text hover:bg-vellum-elevated"
+                  )}
+                >
+                  {it.icon}
+                  <span className="hidden xl:inline">{it.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {!showTrash && <LayoutSwitcher layout={layout} setLayout={setLayout} />}
           <button
             onClick={() => {
@@ -678,6 +725,13 @@ export function LibraryView() {
                 className="px-3 py-1.5 rounded text-xs text-vellum-muted hover:text-vellum-text hover:bg-vellum-elevated flex items-center gap-1.5 transition"
               >
                 <RefreshCw size={11} /> Refresh
+              </button>
+              <button
+                onClick={() => setGenerateOpen(true)}
+                disabled={busy}
+                className="px-3 py-1.5 rounded text-xs text-vellum-text hover:text-vellum-accent bg-vellum-elevated hover:bg-vellum-bg flex items-center gap-1.5 transition disabled:opacity-40"
+              >
+                <Sparkles size={11} /> Generate
               </button>
               <button
                 onClick={() => void handleImportClick()}
@@ -749,7 +803,7 @@ export function LibraryView() {
           >
             {layout === "grid" && (
               <GridLayout
-                images={images}
+                images={visibleImages}
                 selectedIds={selectedIds}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
@@ -764,7 +818,7 @@ export function LibraryView() {
             )}
             {layout === "masonry" && (
               <MasonryLayout
-                images={images}
+                images={visibleImages}
                 selectedIds={selectedIds}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
@@ -779,7 +833,7 @@ export function LibraryView() {
             )}
             {layout === "list" && (
               <ListLayout
-                images={images}
+                images={visibleImages}
                 selectedIds={selectedIds}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
@@ -894,6 +948,15 @@ export function LibraryView() {
           placeholder="图片名称"
           onClose={() => setRenameTarget(null)}
           onSubmit={(next) => handleRenameImage(renameTarget, next)}
+        />
+      )}
+
+      {project && (
+        <GenerateImageModal
+          open={generateOpen}
+          onClose={() => setGenerateOpen(false)}
+          projectId={project.id}
+          onGenerated={() => void refresh()}
         />
       )}
     </div>
