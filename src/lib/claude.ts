@@ -2322,12 +2322,21 @@ export async function optimizeDraftToFirstPass(
     .filter((img) => img.role === "scene")
     .map((img) => img.image_index);
 
-  // ─── Subprocess fast path ─────────────────────────────
-  // Codex CLI / Claude CLI: 10-30s startup × 4 calls = 120-240s. Collapse to
-  // one call that emits both stages with delimiters. No retry — we live with
-  // occasional sub-optimal output to keep the user iterating fast.
+  // ─── Combined fast path ─────────────────────────────
+  // Backends with high per-call cost (CLI subprocess startup, multi-image
+  // base64 upload over the network) collapse Pass 0 + Pass 1 into one LLM
+  // call. Gemini API is on this path because each call re-uploads N ref
+  // images as inlineData — 2 separate stages doubles the upload, and the
+  // bandwidth from CN → Google can easily dominate model latency.
+  // No retry on Combined — sub-optimal output is acceptable to keep the
+  // user iterating fast.
   const mode = await getAuthMode();
-  if (mode === "cli" || mode === "codex") {
+  if (
+    mode === "cli" ||
+    mode === "codex" ||
+    mode === "gemini" ||
+    mode === "gemini-cli"
+  ) {
     return optimizeViaCombinedCall(
       draft,
       usedRefImages,
