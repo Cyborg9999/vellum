@@ -142,14 +142,17 @@ export async function restoreRefImage(id: number): Promise<void> {
     "UPDATE ref_images SET deleted_at = NULL, image_index = ? WHERE id = ?",
     [newIdx, id]
   );
-  await compactImageIndices(projectId);
+  // C5 (2026-05-29): no auto-compact on restore. compactImageIndices has a
+  // failure mode where mid-transaction `-1000 - N` parking slots leak when
+  // ROLLBACK is swallowed, then every subsequent compact retries on dirty
+  // data and the user sees an endless cascade of transaction errors. Gaps
+  // in image_index are cosmetic; (图N) refs in prompts work regardless.
 }
 
 export async function permanentlyDeleteRefImage(id: number): Promise<void> {
   const db = await getDb();
-  const projectId = await getProjectIdForRefImage(id);
   await db.execute("DELETE FROM ref_images WHERE id = ?", [id]);
-  if (projectId !== null) await compactImageIndices(projectId);
+  // C5: no auto-compact. See restoreRefImage note above.
 }
 
 async function getProjectIdForRefImage(id: number): Promise<number | null> {
@@ -468,14 +471,13 @@ export async function updateRefImage(
  */
 export async function deleteRefImage(id: number): Promise<void> {
   const db = await getDb();
-  const projectId = await getProjectIdForRefImage(id);
   // Park to negative slot (-100000 - id) on soft-delete so the positive index
   // space stays clean for the active set's compaction.
   await db.execute(
     "UPDATE ref_images SET deleted_at = ?, image_index = -100000 - id WHERE id = ?",
     [now(), id]
   );
-  if (projectId !== null) await compactImageIndices(projectId);
+  // C5 (2026-05-29): no auto-compact. See restoreRefImage note.
 }
 
 // ── Prompt Segment Entries ──────────────────────────────────────────

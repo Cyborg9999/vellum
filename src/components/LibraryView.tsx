@@ -31,7 +31,6 @@ import {
   listTrashedRefImages,
   restoreRefImage,
   permanentlyDeleteRefImage,
-  compactImageIndices,
 } from "@/lib/db";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -240,9 +239,11 @@ export function LibraryView() {
   const refresh = useCallback(async () => {
     if (!project) return;
     try {
-      // Densify image_index → 1..N and rewrite (图N) refs to match. Idempotent;
-      // a no-op when indices are already sequential.
-      await compactImageIndices(project.id);
+      // C5 (2026-05-29): no auto-compact on refresh. compactImageIndices
+      // had a failure mode where mid-transaction parking slots (-1000-N)
+      // leaked on swallowed-ROLLBACK and cascaded into endless "transaction
+      // within a transaction" errors. Gaps in image_index are cosmetic;
+      // (图N) refs in prompts resolve by number regardless.
       await loadRefImages(project.id);
     } catch (e) {
       console.error("[LibraryView] refresh failed:", e);
