@@ -438,6 +438,52 @@ interface GeminiResponse {
   error?: { message?: string };
 }
 
+/**
+ * Decode an image's bytes, downscale long edge to maxEdge px, re-encode as
+ * JPEG/0.85. Returns original bytes if already within cap or if any decode
+ * step fails — resize must never block the upload, only speed it up.
+ */
+async function resizeBytesForUpload(
+  bytes: Uint8Array,
+  path: string,
+  maxEdge: number
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const originalMime = mediaTypeFromPath(path);
+  try {
+    const blob = new Blob([bytes as unknown as BlobPart], {
+      type: originalMime,
+    });
+    const img = await createImageBitmap(blob);
+    const longEdge = Math.max(img.width, img.height);
+    if (longEdge <= maxEdge) {
+      img.close?.();
+      return { bytes, mimeType: originalMime };
+    }
+    const scale = maxEdge / longEdge;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      img.close?.();
+      return { bytes, mimeType: originalMime };
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    img.close?.();
+    const compressed = await canvas.convertToBlob({
+      type: "image/jpeg",
+      quality: 0.85,
+    });
+    return {
+      bytes: new Uint8Array(await compressed.arrayBuffer()),
+      mimeType: "image/jpeg",
+    };
+  } catch (e) {
+    console.warn("[gemini] in-memory resize failed, sending original:", path, e);
+    return { bytes, mimeType: originalMime };
+  }
+}
+
 async function callViaGemini(
   systemPrompt: string,
   userText: string,
@@ -455,11 +501,17 @@ async function callViaGemini(
   const failedImagePaths: string[] = [];
   for (const p of imagePaths) {
     try {
-      const bytes = await readFile(p);
+      const rawBytes = await readFile(p);
+      // C7 (2026-05-29): in-memory resize before base64. Drag-drop and
+      // Import paths reference the user's on-disk original (often 3-8 MB
+      // Midjourney PNG), and Pass 1 / Pass 2 re-upload them every call.
+      // Capping the long edge at 1024px JPEG/0.85 cuts the upload payload
+      // 10-20x without measurable Vision quality loss.
+      const resized = await resizeBytesForUpload(rawBytes, p, 1024);
       imageParts.push({
         inline_data: {
-          mime_type: mediaTypeFromPath(p),
-          data: bytesToBase64(bytes),
+          mime_type: resized.mimeType,
+          data: bytesToBase64(resized.bytes),
         },
       });
     } catch (e) {
