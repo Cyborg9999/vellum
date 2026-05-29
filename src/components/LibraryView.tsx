@@ -18,6 +18,7 @@ import {
   Pencil,
   Copy,
   Eye,
+  Sparkles,
 } from "lucide-react";
 import type { RefImage, RefImageRole } from "@/lib/types";
 import { ROLE_LABEL } from "@/lib/types";
@@ -35,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { ImageLightbox } from "./ImageLightbox";
 import { ContextMenu } from "./ContextMenu";
 import { RenameDialog } from "./RenameDialog";
+import { GenerateImageModal } from "./GenerateImageModal";
 
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i;
 const ROLES: RefImageRole[] = ["character", "scene", "prop"];
@@ -158,6 +160,7 @@ export function LibraryView() {
     image: RefImage;
   } | null>(null);
   const [renameTarget, setRenameTarget] = useState<RefImage | null>(null);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   // Marquee rectangle (client coords, fixed-position overlay)
@@ -680,6 +683,13 @@ export function LibraryView() {
                 <RefreshCw size={11} /> Refresh
               </button>
               <button
+                onClick={() => setGenerateOpen(true)}
+                disabled={busy}
+                className="px-3 py-1.5 rounded text-xs text-vellum-text hover:text-vellum-accent bg-vellum-elevated hover:bg-vellum-bg flex items-center gap-1.5 transition disabled:opacity-40"
+              >
+                <Sparkles size={11} /> Generate
+              </button>
+              <button
                 onClick={() => void handleImportClick()}
                 disabled={busy}
                 className="px-3 py-1.5 rounded text-xs bg-vellum-accent hover:bg-vellum-accent-hover text-vellum-bg font-bold flex items-center gap-1.5 transition disabled:opacity-40"
@@ -894,6 +904,15 @@ export function LibraryView() {
           placeholder="图片名称"
           onClose={() => setRenameTarget(null)}
           onSubmit={(next) => handleRenameImage(renameTarget, next)}
+        />
+      )}
+
+      {project && (
+        <GenerateImageModal
+          open={generateOpen}
+          onClose={() => setGenerateOpen(false)}
+          projectId={project.id}
+          onGenerated={() => void refresh()}
         />
       )}
     </div>
