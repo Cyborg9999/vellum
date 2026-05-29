@@ -2177,7 +2177,10 @@ export async function optimizeDraftToFirstPass(
  * but unblocks the UI so the user can retry / cancel. Defends against grill
  * H2: CLI subprocess wrappers have no timeout / no cancel.
  */
-const CLI_TIMEOUT_MS = 60_000; // 60s hard cap for Claude/Codex subprocess
+// Pass 1 / Pass 2 outputs can run 3000-5000 tokens; even Haiku 4.5
+// needs 30-90s to stream that much, plus subprocess startup overhead.
+// 60s was too aggressive — was timing out before the model finished.
+const CLI_TIMEOUT_MS = 180_000; // 3 min
 const FETCH_TIMEOUT_MS = 90_000; // 90s hard cap for Anthropic/OpenAI fetch
 
 /**
