@@ -12,7 +12,7 @@ const MODEL_OPUS = "claude-opus-4-7";
 const MODEL_SONNET = "claude-sonnet-4-6";
 const CLI_FAST_MODEL = "claude-haiku-4-5";
 
-export type AuthMode = "api" | "cli" | "openai" | "codex";
+export type AuthMode = "api" | "cli" | "openai" | "codex" | "gemini";
 
 type TextBlock = { type: "text"; text: string };
 type ImageBlock = {
@@ -48,6 +48,7 @@ async function getAuthMode(): Promise<AuthMode> {
   if (v === "cli") return "cli";
   if (v === "openai") return "openai";
   if (v === "codex") return "codex";
+  if (v === "gemini") return "gemini";
   return "codex";
 }
 
@@ -315,6 +316,127 @@ async function callViaOpenAI(
   return text.trim();
 }
 
+// ─── Gemini mode (Google AI Studio generateContent, vision via inlineData) ──
+
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
+interface GeminiInlineData {
+  inline_data: { mime_type: string; data: string };
+}
+interface GeminiTextPart {
+  text: string;
+}
+type GeminiPart = GeminiTextPart | GeminiInlineData;
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: { role?: string; parts?: GeminiTextPart[] };
+    finishReason?: string;
+  }>;
+  promptFeedback?: { blockReason?: string };
+  error?: { message?: string };
+}
+
+async function callViaGemini(
+  systemPrompt: string,
+  userText: string,
+  imagePaths: string[]
+): Promise<string> {
+  const apiKey = await getSetting("gemini_api_key");
+  if (!apiKey) {
+    throw new Error(
+      "Gemini mode selected but no Gemini API key. ⚙ Settings → enter key (free at aistudio.google.com/apikey)."
+    );
+  }
+  const model = (await getSetting("gemini_model")) || DEFAULT_GEMINI_MODEL;
+
+  const imageParts: GeminiInlineData[] = [];
+  const failedImagePaths: string[] = [];
+  for (const p of imagePaths) {
+    try {
+      const bytes = await readFile(p);
+      imageParts.push({
+        inline_data: {
+          mime_type: mediaTypeFromPath(p),
+          data: bytesToBase64(bytes),
+        },
+      });
+    } catch (e) {
+      console.warn("[gemini] read image failed:", p, e);
+      failedImagePaths.push(p);
+    }
+  }
+  // H7-style fail-loud: don't silently send Gemini a request missing the
+  // visual context the caller expected (mirrors callViaOpenAI behavior).
+  if (failedImagePaths.length > 0 && imagePaths.length > 0) {
+    if (imageParts.length === 0) {
+      throw new Error(
+        `Unable to read any of the ${imagePaths.length} reference image(s). Check Library file paths and Tauri fs:scope. First failure: ${failedImagePaths[0]}`
+      );
+    }
+    throw new Error(
+      `${failedImagePaths.length}/${imagePaths.length} reference image(s) failed to read; aborting before sending an incomplete request to Gemini. Failed: ${failedImagePaths
+        .slice(0, 3)
+        .join(", ")}${failedImagePaths.length > 3 ? ", …" : ""}`
+    );
+  }
+
+  const parts: GeminiPart[] = [...imageParts, { text: userText }];
+
+  // API key goes in x-goog-api-key header rather than ?key= query param so it
+  // never gets logged in URL traces. Both forms are accepted by the endpoint.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:generateContent`;
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        temperature: 0.9,
+        topP: 0.95,
+        maxOutputTokens: 8192,
+      },
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+
+  if (!r.ok) {
+    const body = await r.text();
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body) as GeminiResponse;
+      detail = parsed?.error?.message ?? body;
+    } catch {
+      /* keep raw */
+    }
+    // Spell out the 429-on-free-tier case — by far the most common Gemini error.
+    if (r.status === 429) {
+      throw new Error(
+        `Gemini 429 (rate limit / quota): ${detail}. Check live limits at https://aistudio.google.com/rate-limit or switch to a Lite model.`
+      );
+    }
+    throw new Error(`Gemini ${r.status}: ${detail}`);
+  }
+
+  const data = (await r.json()) as GeminiResponse;
+  const blockReason = data.promptFeedback?.blockReason;
+  if (blockReason) {
+    throw new Error(`Gemini blocked the request: ${blockReason}`);
+  }
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Gemini returned empty response");
+  }
+  return text.trim();
+}
+
 // ─── API mode ───────────────────────────────────────────────────────
 
 async function callViaAPI(req: ApiRequest): Promise<string> {
@@ -424,6 +546,9 @@ export async function getPromptBackendLabel(): Promise<string> {
   }
   if (mode === "codex") {
     return `Codex CLI · ${(await getSetting("codex_model")) || DEFAULT_CODEX_MODEL}`;
+  }
+  if (mode === "gemini") {
+    return `Gemini · ${(await getSetting("gemini_model")) || DEFAULT_GEMINI_MODEL}`;
   }
   return "Claude API";
 }
@@ -1803,6 +1928,9 @@ async function callFinalPromptModel(
   if (mode === "cli") {
     return callViaCLI(systemPrompt, userText, imagePaths);
   }
+  if (mode === "gemini") {
+    return callViaGemini(systemPrompt, userText, imagePaths);
+  }
   if (mode === "openai") {
     return callViaOpenAI(systemPrompt, userText, imagePaths);
   }
@@ -1862,6 +1990,9 @@ async function callPromptModel(
   const mode = await getAuthMode();
   if (mode === "cli") {
     return callViaCLI(systemPrompt, userText, imagePaths);
+  }
+  if (mode === "gemini") {
+    return callViaGemini(systemPrompt, userText, imagePaths);
   }
   if (mode === "openai") {
     return callViaOpenAI(systemPrompt, userText, imagePaths);
