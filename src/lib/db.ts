@@ -408,11 +408,19 @@ export async function addRefImage(input: {
   source?: "imported" | "generated";
 }): Promise<RefImage> {
   const db = await getDb();
+  // C6 (2026-05-29): MUST filter deleted_at IS NULL. Trashed rows park at
+  // image_index = -100000 - id (large negatives). Without this filter, MAX
+  // returned the highest negative (e.g. -100001) when all active rows had
+  // been deleted, and the next new image got image_index = -100000, -99999,
+  // ... — visible to the user as "图-100000" in the Library.
   const max = await db.select<{ max_idx: number | null }[]>(
-    "SELECT MAX(image_index) as max_idx FROM ref_images WHERE project_id = ?",
+    "SELECT MAX(image_index) as max_idx FROM ref_images WHERE project_id = ? AND deleted_at IS NULL",
     [input.project_id]
   );
-  const nextIdx = (max[0]?.max_idx ?? 0) + 1;
+  // Guard against the same edge case for any pre-C6 rows still in the DB:
+  // if MAX is negative, treat it as zero so we start at 1 instead of -99999.
+  const rawMax = max[0]?.max_idx ?? 0;
+  const nextIdx = Math.max(0, rawMax) + 1;
   const result = await db.execute(
     `INSERT INTO ref_images
        (project_id, image_index, role, name, file_path, thumbnail_path, width, height, file_size, source, created_at)
