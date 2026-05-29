@@ -166,6 +166,11 @@ export function LibraryView() {
   } | null>(null);
   const [renameTarget, setRenameTarget] = useState<RefImage | null>(null);
   const [generateOpen, setGenerateOpen] = useState(false);
+  // When non-null, the GenerateImageModal opens with this Library image
+  // pre-filled as the reference (triggered by the "Edit with AI →" context
+  // menu). Cleared on close so a subsequent toolbar-launched modal opens
+  // empty again.
+  const [editSourcePath, setEditSourcePath] = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   // Marquee rectangle (client coords, fixed-position overlay)
@@ -914,6 +919,14 @@ export function LibraryView() {
               onSelect: () => setRenameTarget(imageMenu.image),
             },
             {
+              label: "Edit with AI →",
+              icon: <Sparkles size={12} />,
+              onSelect: () => {
+                setEditSourcePath(imageMenu.image.file_path);
+                setGenerateOpen(true);
+              },
+            },
+            {
               label: "复制图片",
               hint: "copy",
               icon: <Copy size={12} />,
@@ -954,9 +967,13 @@ export function LibraryView() {
       {project && (
         <GenerateImageModal
           open={generateOpen}
-          onClose={() => setGenerateOpen(false)}
+          onClose={() => {
+            setGenerateOpen(false);
+            setEditSourcePath(null);
+          }}
           projectId={project.id}
           onGenerated={() => void refresh()}
+          initialSourcePath={editSourcePath}
         />
       )}
     </div>
