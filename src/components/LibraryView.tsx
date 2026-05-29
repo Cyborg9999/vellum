@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { writeFile, mkdir, exists, readFile } from "@tauri-apps/plugin-fs";
+import { writeFile, mkdir, exists, readFile, stat } from "@tauri-apps/plugin-fs";
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
 import { appLocalDataDir, join } from "@tauri-apps/api/path";
 import {
   Plus,
@@ -21,6 +22,7 @@ import {
   Sparkles,
   Layers,
   Download,
+  ListOrdered,
 } from "lucide-react";
 import type { RefImage, RefImageRole } from "@/lib/types";
 import { ROLE_LABEL } from "@/lib/types";
@@ -31,6 +33,7 @@ import {
   listTrashedRefImages,
   restoreRefImage,
   permanentlyDeleteRefImage,
+  compactImageIndices,
 } from "@/lib/db";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -42,37 +45,16 @@ import { GenerateImageModal } from "./GenerateImageModal";
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp)$/i;
 const ROLES: RefImageRole[] = ["character", "scene", "prop"];
 
-function mimeFromPath(path: string): string {
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".bmp")) return "image/bmp";
-  return "image/png";
-}
-
-async function blobToPng(blob: Blob): Promise<Blob> {
-  if (blob.type === "image/png") return blob;
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("无法创建图片画布");
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((png) => {
-      if (png) resolve(png);
-      else reject(new Error("图片转 PNG 失败"));
-    }, "image/png");
-  });
-}
-
-async function readImageAsClipboardPng(filePath: string): Promise<Blob> {
-  const bytes = await readFile(filePath);
-  const source = new Blob([bytes], { type: mimeFromPath(filePath) });
-  return blobToPng(source);
+/**
+ * Render a byte count for the file-size caption on Library cards.
+ * Returns "—" for null/undefined so cards render cleanly while the
+ * on-disk stat() promise is still in flight.
+ */
+function formatBytes(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // C3 + M4 hardening: reject filenames containing newlines, NUL, other
@@ -218,6 +200,11 @@ export function LibraryView() {
   // menu). Cleared on close so a subsequent toolbar-launched modal opens
   // empty again.
   const [editSourcePath, setEditSourcePath] = useState<string | null>(null);
+  // Cache of on-disk file sizes keyed by image id. file_size in the DB is
+  // populated only for in-app generated images (openai-images.ts) — paste /
+  // drag-drop / import paths leave it NULL — so we stat() lazily here and
+  // memoize. Caption falls back to "—" while the stat is in flight.
+  const [fileSizes, setFileSizes] = useState<Map<number, number>>(new Map());
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   // Marquee rectangle (client coords, fixed-position overlay)
@@ -254,6 +241,41 @@ export function LibraryView() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Lazily stat() any image whose size we don't already know (either via
+  // the in-app generation pipeline that populates ref_images.file_size, or
+  // via a previous stat() call cached in fileSizes). Runs in the background
+  // — cards render with "—" until the size lands.
+  useEffect(() => {
+    let cancelled = false;
+    const todo = images.filter(
+      (img) => img.file_size == null && !fileSizes.has(img.id)
+    );
+    if (todo.length === 0) return;
+    void (async () => {
+      const next = new Map(fileSizes);
+      let mutated = false;
+      for (const img of todo) {
+        if (cancelled) return;
+        try {
+          const info = await stat(img.file_path);
+          // plugin-fs FileInfo carries `size` in bytes
+          if (typeof info.size === "number") {
+            next.set(img.id, info.size);
+            mutated = true;
+          }
+        } catch (e) {
+          // Missing / unreadable file — leave the cache untouched so the
+          // caption stays "—". Don't surface; this is informational only.
+          console.warn("[LibraryView] stat failed:", img.file_path, e);
+        }
+      }
+      if (!cancelled && mutated) setFileSizes(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [images, fileSizes]);
 
   const addPaths = useCallback(
     async (paths: string[]) => {
@@ -431,20 +453,26 @@ export function LibraryView() {
   }
 
   async function handleCopyImage(img: RefImage) {
+    setError(null);
+    // Use the Tauri clipboard-manager plugin so the write hits the native
+    // NSPasteboard on macOS instead of WebKit's restricted Async Clipboard
+    // API (which rejects programmatic image writes with "The request is not
+    // allowed by the user agent"). The plugin accepts raw image bytes and
+    // figures out the encoding for us.
     try {
-      setError(null);
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-        await navigator.clipboard.writeText(img.file_path);
-        setError("当前系统不支持复制图片本体，已改为复制文件路径。");
-        return;
-      }
-      const png = await readImageAsClipboardPng(img.file_path);
-      await navigator.clipboard.write([
-        new ClipboardItem({ "image/png": png }),
-      ]);
+      const bytes = await readFile(img.file_path);
+      await writeImage(bytes);
     } catch (e) {
       console.error("[LibraryView] copy image failed:", e);
-      setError(e instanceof Error ? e.message : String(e));
+      // Graceful degradation: at least put the path on the clipboard so the
+      // user can paste it into Finder / Terminal.
+      try {
+        await navigator.clipboard.writeText(img.file_path);
+        setError("复制图片本体失败，已改为复制文件路径。");
+      } catch (fallbackErr) {
+        console.error("[LibraryView] copy path fallback failed:", fallbackErr);
+        setError(e instanceof Error ? e.message : String(e));
+      }
     }
   }
 
@@ -480,6 +508,32 @@ export function LibraryView() {
     } catch (e) {
       console.error("[LibraryView] bulk delete failed:", e);
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Manual "整理编号" — re-pack image_index so the remaining active images
+   * are numbered 1..N with no gaps. Auto-compact was removed in C5 because
+   * the old code path could leak parking slots (-100000-N) and cascade into
+   * "transaction within a transaction" errors. We keep the helper available
+   * here behind a confirm so the user can compact on demand without paying
+   * the failure-cascade cost on every refresh.
+   */
+  async function handleCompact() {
+    if (!project) return;
+    const ok = window.confirm(
+      "整理图片编号？删除后留下的空缺会被重排为连续数字。"
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await compactImageIndices(project.id);
+      await loadRefImages(project.id);
+    } catch (e) {
+      console.error("[LibraryView] compact failed:", e);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -676,6 +730,17 @@ export function LibraryView() {
       ? images
       : images.filter((i) => i.source === sourceFilter);
 
+  // Card-side accessor: prefer the DB column when it's already populated
+  // (in-app generation path) otherwise fall back to the lazily-fetched
+  // stat() cache. Returns null until both sources come back empty, which
+  // formatBytes() renders as "—".
+  const resolveSize = useMemo(
+    () =>
+      (img: RefImage): number | null =>
+        img.file_size ?? fileSizes.get(img.id) ?? null,
+    [fileSizes]
+  );
+
   return (
     <div className="relative">
       <div className="border-b border-vellum-border px-8 py-7 flex items-end justify-between gap-4">
@@ -781,6 +846,14 @@ export function LibraryView() {
                 <RefreshCw size={11} /> Refresh
               </button>
               <button
+                onClick={() => void handleCompact()}
+                disabled={busy}
+                title="整理编号：把空缺重排为 1..N 连续数字"
+                className="px-3 py-1.5 rounded text-xs text-vellum-muted hover:text-vellum-text hover:bg-vellum-elevated flex items-center gap-1.5 transition disabled:opacity-40"
+              >
+                <ListOrdered size={11} /> 整理编号
+              </button>
+              <button
                 onClick={() => setGenerateOpen(true)}
                 disabled={busy}
                 className="px-3 py-1.5 rounded text-xs text-vellum-text hover:text-vellum-accent bg-vellum-elevated hover:bg-vellum-bg flex items-center gap-1.5 transition disabled:opacity-40"
@@ -859,6 +932,7 @@ export function LibraryView() {
               <GridLayout
                 images={visibleImages}
                 selectedIds={selectedIds}
+                resolveSize={resolveSize}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
                 onDelete={(id) => void handleDelete(id)}
@@ -874,6 +948,7 @@ export function LibraryView() {
               <MasonryLayout
                 images={visibleImages}
                 selectedIds={selectedIds}
+                resolveSize={resolveSize}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
                 onDelete={(id) => void handleDelete(id)}
@@ -889,6 +964,7 @@ export function LibraryView() {
               <ListLayout
                 images={visibleImages}
                 selectedIds={selectedIds}
+                resolveSize={resolveSize}
                 onOpen={(id) => setLightboxId(id)}
                 onRoleChange={(id, r) => void handleRoleChange(id, r)}
                 onDelete={(id) => void handleDelete(id)}
@@ -1073,6 +1149,7 @@ function Sep() {
 function GridLayout({
   images,
   selectedIds,
+  resolveSize,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1085,6 +1162,7 @@ function GridLayout({
           key={img.id}
           image={img}
           selected={selectedIds.has(img.id)}
+          sizeBytes={resolveSize(img)}
           onOpen={() => onOpen(img.id)}
           onRoleChange={(r) => onRoleChange(img.id, r)}
           onDelete={() => onDelete(img.id)}
@@ -1098,6 +1176,7 @@ function GridLayout({
 function ImageCardGrid({
   image,
   selected,
+  sizeBytes,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1144,11 +1223,19 @@ function ImageCardGrid({
         <DeleteHover onDelete={onDelete} />
       </div>
       <div className="p-2 space-y-1.5">
-        <div
-          className="text-[10px] text-vellum-faint truncate"
-          title={image.name || image.file_path}
-        >
-          {image.name || "—"}
+        <div className="flex items-center justify-between gap-2">
+          <div
+            className="text-[10px] text-vellum-faint truncate"
+            title={image.name || image.file_path}
+          >
+            {image.name || "—"}
+          </div>
+          <div
+            className="text-[10px] text-vellum-faint shrink-0 tabular-nums"
+            title="on-disk size"
+          >
+            {formatBytes(sizeBytes)}
+          </div>
         </div>
         <RolePills role={image.role} onChange={onRoleChange} />
       </div>
@@ -1161,6 +1248,7 @@ function ImageCardGrid({
 function MasonryLayout({
   images,
   selectedIds,
+  resolveSize,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1176,6 +1264,7 @@ function MasonryLayout({
           key={img.id}
           image={img}
           selected={selectedIds.has(img.id)}
+          sizeBytes={resolveSize(img)}
           onOpen={() => onOpen(img.id)}
           onRoleChange={(r) => onRoleChange(img.id, r)}
           onDelete={() => onDelete(img.id)}
@@ -1189,6 +1278,7 @@ function MasonryLayout({
 function ImageCardMasonry({
   image,
   selected,
+  sizeBytes,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1232,11 +1322,19 @@ function ImageCardMasonry({
         <DeleteHover onDelete={onDelete} />
       </div>
       <div className="p-2 space-y-1.5">
-        <div
-          className="text-[10px] text-vellum-faint truncate"
-          title={image.name || image.file_path}
-        >
-          {image.name || "—"}
+        <div className="flex items-center justify-between gap-2">
+          <div
+            className="text-[10px] text-vellum-faint truncate"
+            title={image.name || image.file_path}
+          >
+            {image.name || "—"}
+          </div>
+          <div
+            className="text-[10px] text-vellum-faint shrink-0 tabular-nums"
+            title="on-disk size"
+          >
+            {formatBytes(sizeBytes)}
+          </div>
         </div>
         <RolePills role={image.role} onChange={onRoleChange} />
       </div>
@@ -1249,6 +1347,7 @@ function ImageCardMasonry({
 function ListLayout({
   images,
   selectedIds,
+  resolveSize,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1261,6 +1360,7 @@ function ListLayout({
           key={img.id}
           image={img}
           selected={selectedIds.has(img.id)}
+          sizeBytes={resolveSize(img)}
           onOpen={() => onOpen(img.id)}
           onRoleChange={(r) => onRoleChange(img.id, r)}
           onDelete={() => onDelete(img.id)}
@@ -1274,6 +1374,7 @@ function ListLayout({
 function ImageRowList({
   image,
   selected,
+  sizeBytes,
   onOpen,
   onRoleChange,
   onDelete,
@@ -1334,6 +1435,12 @@ function ImageRowList({
         title={image.name || image.file_path}
       >
         {image.name || image.file_path.split("/").pop()}
+      </div>
+      <div
+        className="text-[10px] text-vellum-faint shrink-0 w-16 text-right tabular-nums"
+        title="on-disk size"
+      >
+        {formatBytes(sizeBytes)}
       </div>
       <RolePills role={image.role} onChange={onRoleChange} compact />
       <button
@@ -1410,6 +1517,9 @@ function RolePills({
 interface LayoutProps {
   images: RefImage[];
   selectedIds: Set<number>;
+  /** Returns the on-disk size in bytes or null when neither the DB row
+   *  nor the runtime stat() cache has an answer yet. */
+  resolveSize: (img: RefImage) => number | null;
   onOpen: (id: number) => void;
   onRoleChange: (id: number, role: RefImageRole) => void;
   onDelete: (id: number) => void;
@@ -1422,6 +1532,7 @@ interface LayoutProps {
 interface CardProps {
   image: RefImage;
   selected: boolean;
+  sizeBytes: number | null;
   onOpen: () => void;
   onRoleChange: (role: RefImageRole) => void;
   onDelete: () => void;

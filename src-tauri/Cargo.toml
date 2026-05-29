@@ -26,6 +26,7 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 tauri-plugin-fs = "2.5.1"
 tauri-plugin-dialog = "2.7.1"
 tauri-plugin-shell = "2.3.5"
+tauri-plugin-clipboard-manager = "2.3.2"
 
 [features]
 # Enable devtools only in debug builds (default) or when explicitly opted in.

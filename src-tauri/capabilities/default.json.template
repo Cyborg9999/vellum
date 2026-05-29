@@ -13,6 +13,8 @@
     "sql:allow-select",
     "sql:allow-close",
 
+    "clipboard-manager:default",
+
     "dialog:default",
     "dialog:allow-open",
 
