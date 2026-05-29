@@ -10,6 +10,7 @@ const API_VERSION = "2023-06-01";
 
 const MODEL_OPUS = "claude-opus-4-7";
 const MODEL_SONNET = "claude-sonnet-4-6";
+const CLI_FAST_MODEL = "claude-haiku-4-5";
 
 export type AuthMode = "api" | "cli" | "openai" | "codex";
 
@@ -380,6 +381,17 @@ ${userText}`;
     "--print",
     "--output-format",
     "text",
+    "--model",
+    CLI_FAST_MODEL,
+    // Speedup combo (replaces --bare, which broke OAuth/keychain auth
+    // and 401-failed every call for subscription users without
+    // ANTHROPIC_API_KEY). These three flags skip MCP plugin servers,
+    // settings.json + hook scans, and session disk writes — approximating
+    // --bare's startup savings while PRESERVING OAuth/keychain auth.
+    "--strict-mcp-config",
+    "--setting-sources",
+    "",
+    "--no-session-persistence",
     // `--` separator: any leading `-` in the user-controlled prompt would
     // otherwise be parsed as a CLI flag (e.g. `--mcp-config /tmp/evil`).
     // C3 hardening — prevents prompt-injection-to-CLI-flag escalation.
@@ -2165,7 +2177,10 @@ export async function optimizeDraftToFirstPass(
  * but unblocks the UI so the user can retry / cancel. Defends against grill
  * H2: CLI subprocess wrappers have no timeout / no cancel.
  */
-const CLI_TIMEOUT_MS = 180_000; // 3 min hard cap for Claude/Codex subprocess
+// Pass 1 / Pass 2 outputs can run 3000-5000 tokens; even Haiku 4.5
+// needs 30-90s to stream that much, plus subprocess startup overhead.
+// 60s was too aggressive — was timing out before the model finished.
+const CLI_TIMEOUT_MS = 180_000; // 3 min
 const FETCH_TIMEOUT_MS = 90_000; // 90s hard cap for Anthropic/OpenAI fetch
 
 /**
