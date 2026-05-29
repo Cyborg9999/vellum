@@ -49,6 +49,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const [codexModel, setCodexModel] = useState("gpt-5.5");
   const [geminiKey, setGeminiKey] = useState("");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash");
+  const [geminiCliModel, setGeminiCliModel] = useState("gemini-2.5-flash");
   const [theme, setTheme] = useState<ThemeMode>(getThemeMode);
   const [resolvedTheme, setResolvedTheme] = useState(getResolvedTheme);
   const [revealClaude, setRevealClaude] = useState(false);
@@ -90,6 +91,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         if (gk) setGeminiKey(gk);
         const gm = await getSetting("gemini_model");
         if (gm) setGeminiModel(gm);
+        const gcm = await getSetting("gemini_cli_model");
+        if (gcm) setGeminiCliModel(gcm);
       } catch (e) {
         console.error("[Settings] load failed:", e);
       }
@@ -117,6 +120,12 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         await setSetting(
           "gemini_model",
           geminiModel.trim() || "gemini-2.5-flash"
+        );
+      }
+      if (mode === "gemini-cli") {
+        await setSetting(
+          "gemini_cli_model",
+          geminiCliModel.trim() || "gemini-2.5-flash"
         );
       }
       resetClaudeClient();
@@ -247,8 +256,15 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                 active={mode === "gemini"}
                 onClick={() => setMode("gemini")}
                 icon={<Sparkles size={13} />}
-                label="Gemini"
+                label="Gemini API"
                 hint="Google AI Studio API · 免费 tier 够日常用"
+              />
+              <ModeOption
+                active={mode === "gemini-cli"}
+                onClick={() => setMode("gemini-cli")}
+                icon={<Sparkles size={13} />}
+                label="Gemini CLI"
+                hint="走你 Google AI Pro / Code Assist 订阅 · 无额外 key"
                 className="col-span-2"
               />
             </div>
@@ -445,6 +461,33 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
                     aistudio.google.com/rate-limit
                   </code>
                   。
+                </div>
+              </div>
+            </div>
+          )}
+
+          {mode === "gemini-cli" && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-[10px] uppercase text-vellum-faint mb-2">
+                  Model
+                </div>
+                <select
+                  value={geminiCliModel}
+                  onChange={(e) => {
+                    setGeminiCliModel(e.target.value);
+                    setSaved(false);
+                  }}
+                  className="w-full bg-vellum-bg border border-vellum-border rounded px-3 py-2 text-vellum-text text-sm font-mono focus:border-vellum-accent-border transition"
+                >
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                </select>
+                <div className="text-[10px] text-vellum-faint mt-2 leading-relaxed">
+                  走本机 <code className="text-vellum-accent">/opt/homebrew/bin/gemini</code>
+                  。需要先在终端跑一次 <code className="text-vellum-accent">gemini</code>{" "}
+                  /auth 登录 Google AI Pro / Code Assist 订阅。
+                  调用是 subprocess，比 Gemini API 慢（agent harness 暗藏开销），但不消耗 API quota。
                 </div>
               </div>
             </div>

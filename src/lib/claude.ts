@@ -12,7 +12,7 @@ const MODEL_OPUS = "claude-opus-4-7";
 const MODEL_SONNET = "claude-sonnet-4-6";
 const CLI_FAST_MODEL = "claude-haiku-4-5";
 
-export type AuthMode = "api" | "cli" | "openai" | "codex" | "gemini";
+export type AuthMode = "api" | "cli" | "openai" | "codex" | "gemini" | "gemini-cli";
 
 type TextBlock = { type: "text"; text: string };
 type ImageBlock = {
@@ -49,6 +49,7 @@ async function getAuthMode(): Promise<AuthMode> {
   if (v === "openai") return "openai";
   if (v === "codex") return "codex";
   if (v === "gemini") return "gemini";
+  if (v === "gemini-cli") return "gemini-cli";
   return "codex";
 }
 
@@ -204,6 +205,105 @@ function looksLikeCodexModelError(message: string): boolean {
     low.includes("unsupported model") ||
     low.includes("not supported when using codex with a chatgpt account")
   );
+}
+
+// ─── Gemini CLI mode (uses user's Google AI Pro / Code Assist subscription) ─
+
+const DEFAULT_GEMINI_CLI_MODEL = "gemini-2.5-flash";
+
+async function callViaGeminiCLI(
+  systemPrompt: string,
+  userText: string,
+  imagePaths: string[]
+): Promise<string> {
+  const model = (await getSetting("gemini_cli_model")) || DEFAULT_GEMINI_CLI_MODEL;
+
+  // Gemini CLI is an agent harness like codex. Wrap the task so it behaves as
+  // a deterministic prompt-rewriter and does not start interactive tool use.
+  // Image paths embed as @path mentions (Gemini CLI native syntax for file refs).
+  const fullPrompt = buildGeminiCliPrompt(systemPrompt, userText, imagePaths);
+
+  const args = [
+    "--output-format", "json",
+    "--model", model,
+    "--yolo",
+    "-p", fullPrompt,
+  ];
+
+  // gemini is a Node script (#!/usr/bin/env node). Inherited PATH from
+  // Finder/Dock-launched .app lacks /opt/homebrew/bin — same fix as codex.
+  const cmd = Command.create("gemini", args, {
+    env: {
+      PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    },
+  });
+
+  const result = await runTracked(cmd, {
+    timeoutMs: CLI_TIMEOUT_MS,
+    label: "gemini CLI",
+  });
+
+  if (result.code !== 0) {
+    throw new Error(
+      `Gemini CLI exit ${result.code}: ${
+        result.stderr || result.stdout || "(no output)"
+      }`
+    );
+  }
+
+  return cleanGeminiCliOutput(result.stdout || "");
+}
+
+function buildGeminiCliPrompt(
+  systemPrompt: string,
+  userText: string,
+  imagePaths: string[]
+): string {
+  const imageRefs =
+    imagePaths.length > 0
+      ? `\n【视觉输入】以下文件作为参考图（请直接理解视觉内容，不要复述）：\n${imagePaths
+          .map((p) => `@${p}`)
+          .join("\n")}\n`
+      : "";
+
+  return `你正在 Vellum 桌面应用内部作为"提示词优化引擎"运行。
+
+硬性约束：
+- 这是纯文本改写任务，不要修改文件、不要运行命令、不要提出计划。
+- 不要输出解释、分析过程、道歉、Markdown 标题或代码块。
+- 只输出可以直接粘贴回 Vellum 的最终文本。
+- 严格遵守下方系统指令里的格式、字数、风格和禁用项。
+${imageRefs}
+【系统指令】
+${systemPrompt}
+
+【用户输入】
+${userText}
+
+【最终输出】
+`;
+}
+
+function cleanGeminiCliOutput(stdout: string): string {
+  // Gemini CLI JSON output: { session_id, response: "...", stats: {...} }
+  try {
+    const parsed = JSON.parse(stdout) as { response?: string };
+    if (typeof parsed.response === "string") {
+      return parsed.response.trim().replace(/^(?:final answer|final)\s*[:：]\s*/i, "").trim();
+    }
+  } catch {
+    // Sometimes stdout has prefix warnings before JSON — try to extract last JSON object
+    const lastBrace = stdout.lastIndexOf("{");
+    if (lastBrace > 0) {
+      try {
+        const parsed = JSON.parse(stdout.slice(lastBrace)) as { response?: string };
+        if (typeof parsed.response === "string") return parsed.response.trim();
+      } catch {
+        /* fall through to plain text */
+      }
+    }
+  }
+  return stdout.trim();
 }
 
 // ─── OpenAI mode (chat completions API, vision via image_url) ───────
@@ -549,6 +649,9 @@ export async function getPromptBackendLabel(): Promise<string> {
   }
   if (mode === "gemini") {
     return `Gemini · ${(await getSetting("gemini_model")) || DEFAULT_GEMINI_MODEL}`;
+  }
+  if (mode === "gemini-cli") {
+    return `Gemini CLI · ${(await getSetting("gemini_cli_model")) || DEFAULT_GEMINI_CLI_MODEL}`;
   }
   return "Claude API";
 }
@@ -1937,6 +2040,9 @@ async function callFinalPromptModel(
   if (mode === "codex") {
     return callViaCodex(systemPrompt, userText, imagePaths);
   }
+  if (mode === "gemini-cli") {
+    return callViaGeminiCLI(systemPrompt, userText, imagePaths);
+  }
 
   const imageBlocks: ImageBlock[] = [];
   const failedImages: string[] = [];
@@ -1999,6 +2105,9 @@ async function callPromptModel(
   }
   if (mode === "codex") {
     return callViaCodex(systemPrompt, userText, imagePaths);
+  }
+  if (mode === "gemini-cli") {
+    return callViaGeminiCLI(systemPrompt, userText, imagePaths);
   }
   if (imagePaths.length > 0) {
     const imageBlocks = await readImageBlocksOrThrow(imagePaths);
