@@ -37,6 +37,7 @@ function mkRef(image_index: number, file_path = `/tmp/img${image_index}.png`): R
     file_size: null,
     created_at: 0,
     deleted_at: null,
+    source: "imported",
   };
 }
 

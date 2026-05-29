@@ -38,6 +38,9 @@ export interface RefImage {
   created_at: number;
   /** null when active, unix timestamp when soft-deleted (migration 003) */
   deleted_at: number | null;
+  /** origin of this image: 'imported' for user uploads, 'generated' for
+   * in-app synthesis (e.g. OpenAI image gen). Added in migration 007. */
+  source: "imported" | "generated";
 }
 
 export interface PromptEntry {

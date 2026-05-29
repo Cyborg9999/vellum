@@ -1,4 +1,4 @@
-// Library Generate flow: prompt → OpenAI gpt-image-1 → preview → save to
+// Library Generate flow: prompt → OpenAI gpt-image-2 → preview → save to
 // the active project's Library. State machine covers idle / generating /
 // preview / saving / error so the user can iterate without re-opening.
 
@@ -231,6 +231,10 @@ export function GenerateImageModal({
               </button>
             </div>
           )}
+
+          <div className="text-center text-[11px] text-vellum-muted pt-1">
+            Powered by OpenAI gpt-image-2
+          </div>
         </div>
       </div>
     </div>

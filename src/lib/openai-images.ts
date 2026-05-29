@@ -1,4 +1,4 @@
-// OpenAI gpt-image-1 client: generate PNGs via the /v1/images/generations
+// OpenAI gpt-image-2 client: generate PNGs via the /v1/images/generations
 // endpoint and persist them into the project's Library (mirrors the disk +
 // DB layout used for clipboard pastes and drag-drop imports).
 
@@ -42,7 +42,7 @@ export async function generateImage(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-image-1",
+      model: "gpt-image-2",
       prompt: opts.prompt,
       n: 1,
       size,
@@ -114,6 +114,7 @@ export async function saveGeneratedImageToLibrary(
     name: input.prompt.slice(0, 60),
     file_path: fullPath,
     file_size: bytes.length,
+    source: "generated",
   });
 }
 

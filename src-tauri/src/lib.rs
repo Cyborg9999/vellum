@@ -45,6 +45,12 @@ pub fn run() {
             sql: include_str!("../migrations/006_submit_id_column.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "add_ref_image_source",
+            sql: include_str!("../migrations/007_ref_image_source.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
