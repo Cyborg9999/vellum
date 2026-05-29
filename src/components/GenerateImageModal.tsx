@@ -581,13 +581,24 @@ export function GenerateImageModal({
               <div className="grid grid-cols-3 gap-2">
                 {ASPECT_OPTIONS.map((opt) => {
                   const selected = size === opt.size;
+                  const isLandscape = opt.w >= opt.h;
+                  const LONG_PX = 40;
+                  const previewStyle = isLandscape
+                    ? {
+                        width: `${LONG_PX}px`,
+                        height: `${(LONG_PX * opt.h) / opt.w}px`,
+                      }
+                    : {
+                        width: `${(LONG_PX * opt.w) / opt.h}px`,
+                        height: `${LONG_PX}px`,
+                      };
                   return (
                     <button
                       key={opt.ratio}
                       type="button"
                       onClick={() => setSize(opt.size)}
                       className={cn(
-                        "h-14 px-2 py-2 rounded border flex flex-col items-stretch justify-center transition",
+                        "h-16 px-2 py-2 rounded border flex flex-col items-stretch justify-center transition",
                         selected
                           ? "border-vellum-accent bg-vellum-accent-soft text-vellum-text"
                           : "border-vellum-border bg-vellum-elevated text-vellum-muted hover:text-vellum-text hover:border-vellum-accent-border"
@@ -595,11 +606,7 @@ export function GenerateImageModal({
                     >
                       <div className="flex-1 flex items-center justify-center px-2">
                         <div
-                          style={{
-                            aspectRatio: `${opt.w} / ${opt.h}`,
-                            maxHeight: "28px",
-                            maxWidth: "100%",
-                          }}
+                          style={previewStyle}
                           className={cn(
                             "rounded-sm",
                             selected
