@@ -10,6 +10,7 @@ const API_VERSION = "2023-06-01";
 
 const MODEL_OPUS = "claude-opus-4-7";
 const MODEL_SONNET = "claude-sonnet-4-6";
+const CLI_FAST_MODEL = "claude-haiku-4-5";
 
 export type AuthMode = "api" | "cli" | "openai" | "codex";
 
@@ -380,6 +381,11 @@ ${userText}`;
     "--print",
     "--output-format",
     "text",
+    "--model",
+    CLI_FAST_MODEL,
+    // --bare skips hooks, LSP, plugin sync, auto-memory, CLAUDE.md
+    // auto-discovery — cuts 10-30s of subprocess startup per call.
+    "--bare",
     // `--` separator: any leading `-` in the user-controlled prompt would
     // otherwise be parsed as a CLI flag (e.g. `--mcp-config /tmp/evil`).
     // C3 hardening — prevents prompt-injection-to-CLI-flag escalation.
@@ -2165,7 +2171,7 @@ export async function optimizeDraftToFirstPass(
  * but unblocks the UI so the user can retry / cancel. Defends against grill
  * H2: CLI subprocess wrappers have no timeout / no cancel.
  */
-const CLI_TIMEOUT_MS = 180_000; // 3 min hard cap for Claude/Codex subprocess
+const CLI_TIMEOUT_MS = 60_000; // 60s hard cap for Claude/Codex subprocess
 const FETCH_TIMEOUT_MS = 90_000; // 90s hard cap for Anthropic/OpenAI fetch
 
 /**
