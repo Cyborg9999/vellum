@@ -75,7 +75,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           m === "cli" ||
           m === "openai" ||
           m === "codex" ||
-          m === "gemini"
+          m === "gemini" ||
+          m === "gemini-cli"
         ) {
           setMode(m);
         }
