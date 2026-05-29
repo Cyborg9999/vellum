@@ -36,14 +36,10 @@ const SIZE_OPTIONS: ImageSize[] = ["1024x1024", "1536x1024", "1024x1536"];
 const QUALITY_OPTIONS: ImageQuality[] = ["auto", "low", "medium", "high"];
 
 const ANGLE_PROMPTS: Record<AngleKey, string> = {
-  "top-down":
-    "Reframe this scene as a top-down bird's-eye view (high-angle overhead shot), maintaining the same subjects, lighting, and style.",
-  "low-angle":
-    "Reframe this scene as a low-angle shot from below looking up, dramatic perspective, maintaining the same subjects, lighting, and style.",
-  "eye-level":
-    "Reframe this scene at eye level, straight-on perspective, maintaining the same subjects, lighting, and style.",
-  "close-up":
-    "Reframe this scene as a tight close-up on the main subject, shallow depth of field, maintaining the same subjects, lighting, and style.",
+  "top-down": "top-down view",
+  "low-angle": "low-angle view",
+  "eye-level": "eye-level view",
+  "close-up": "close-up",
 };
 
 const ANGLE_LABELS: Record<ResultAngle, string> = {
@@ -271,9 +267,7 @@ export function GenerateImageModal({
     for (const angle of ANGLE_ORDER) {
       if (!selectedAngles.has(angle)) continue;
       const base = ANGLE_PROMPTS[angle];
-      const combined = trimmed
-        ? `${base}\n\nAdditional: ${trimmed}`
-        : base;
+      const combined = trimmed ? `${base}, ${trimmed}` : base;
       list.push({ angle, prompt: combined });
     }
     if (selectedAngles.size === 0 && trimmed) {
