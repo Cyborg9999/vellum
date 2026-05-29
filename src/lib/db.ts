@@ -220,6 +220,18 @@ async function compactImageIndicesInner(projectId: number): Promise<void> {
 
   // C1: wrap mutating passes in a transaction. ROLLBACK on any throw so a
   // partial write never persists.
+  //
+  // C4 (2026-05-29): if a prior compact crashed AND its catch-block
+  // ROLLBACK itself failed (we swallow that), the connection is still
+  // mid-transaction and the next BEGIN here throws "cannot start a
+  // transaction within a transaction". Force-rollback before BEGIN —
+  // failure is expected on a clean connection and is intentionally
+  // swallowed; failure would surface as the next BEGIN succeeding anyway.
+  try {
+    await db.execute("ROLLBACK");
+  } catch {
+    /* expected on a clean connection — no live transaction to roll back */
+  }
   await db.execute("BEGIN");
   try {
     // Step 0: park any trashed rows squatting on positive index slots into a
